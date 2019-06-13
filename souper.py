@@ -1,7 +1,7 @@
+import csv
 import os
 import re
 import socket
-import csv
 from http.client import IncompleteRead
 from ssl import CertificateError
 from urllib.error import HTTPError, URLError
@@ -11,9 +11,55 @@ import pycld2
 from bs4 import BeautifulSoup
 from geoip2.database import Reader
 
-from languagemodel import LanguageModel, split_and_clean
-
 reader = Reader('res/GeoIP2-Country.mmdb')
+
+
+def _get_names(file, delimiter=";"):
+    source = open("res/etternavn.csv")
+    rdr = csv.reader(source, delimiter=delimiter)
+    names = ""
+    for row in rdr:
+        names += row[0][0].upper() + row[0][1:].lower() + "|"
+
+    names = names[5:-1]
+    return names
+
+
+surnames = _get_names("res/etternavn.csv")
+boy_names = _get_names("res/guttenavn_alle.csv")
+girl_names = _get_names("res/jentenavn_alle.csv")
+
+rex = f"(({boy_names})|({girl_names})) ({surnames})"
+
+# Postal code + city
+source = open("res/Postnummerregister-ansi.txt", encoding="iso 8859-1")
+rdr = csv.reader(source, delimiter="\t")
+postal = ""
+
+for row in rdr:
+    postal += row[0] + " " + row[1] + "|"
+
+postal = postal[:-1]
+
+# Patterns
+pattern_names = re.compile(rex)
+pattern_postal = re.compile(postal, re.IGNORECASE)
+pattern_phone = re.compile(r"(\(?(\+|00)?47\)?)( ?\d){8}")  # eg. "+47 51 99 00 00"
+
+norway_names = "an Iorua|Naraoẏe|নরওয়ে|Na Uy|Nirribhidh|Noorweë|Noorwegen|Norge|Noreg|Noregur|Noreuwei|Norŭwei|노르웨이|" \
+               "Norga|Norge|Norja|Norra|Norsko|Nórsko|Noruega|Noruwega|Noruwē|ノルウェー|Norveç|Norvèg·e|Norvège|" \
+               "Norvegia|Norvégia|Norvehia|Норвегія|Norvēģija|Norvegija|Norvegio|Norvegiya|Норвегия|Norvegiya" \
+               "|נורבגיה|" \
+               "in-Norveġja|Norvegjia|Norvegye|נאָרװעגיע|Norveška|Норвешка|Norveška|Norvigía|Νορβηγία|Norway|" \
+               "Norway|නෝර්වේ|Norweege|Norwegen|Norwègia|Norwegia|Norwegska|Norwéy|ኖርዌይ|Norwij|Nowe|นอร์เวย์|" \
+               "Norwy|Nuówēi|挪威|Nuruwai|நோர்வே"
+
+pattern_norway = re.compile(f"{norway_names}|norwegian|norsk", re.IGNORECASE)
+pattern_counties = re.compile(
+    r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|romsdal|nordland|oppland|oslo|"
+    r"rogaland|sogn|fjordane|telemark|troms|trøndelag|vest.?agder|vestfold|østfold", re.IGNORECASE)
+
+assert pattern_phone.search("(+47) 902 51 088")
 
 
 def get_text(url):
@@ -37,69 +83,37 @@ def geo(url):
         return False
 
 
-def reg(txt):
-    phone = re.search(r"\+47( ?\d){8}", txt) is not None  # eg. "+47 51 99 00 00"
-    name = re.search(r"nor(w(ay|egian)|ge|eg|sk)", txt, re.IGNORECASE) is not None
-    counties = re.search(r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|romsdal|nordland|oppland|oslo|"
-                         r"rogaland|sogn|fjordane|telemark|troms|trøndelag|vest.?agder|vestfold|østfold",
-                         txt, re.IGNORECASE) is not None
-
-    # Names
-    # Etternavn
-    source = open("res/etternavn.csv")
-    rdr = csv.reader(source, delimiter = ";")
-    etternavn = ""
-    for row in rdr:
-        etternavn += row[0][0].upper() + row[0][1:].lower() + " |"
-
-    etternavn = etternavn[5:-1]
-    #print(etternavn)
+def has_name(txt):
+    names = pattern_names.search(txt)
+    return names is not None
 
 
-    # Fornavn gutter
-    source = open("res/guttenavn_alle.csv")
-    rdr = csv.reader(source, delimiter=";")
-    guttenavn = ""
-    for row in rdr:
-        guttenavn += " " + row[0][0].upper() + row[0][1:].lower() + " |"
-
-    guttenavn = guttenavn[5:-1]
-    #print(guttenavn)
-
-    # Fornavn jenter
-    source = open("res/jentenavn_alle.csv")
-    rdr = csv.reader(source, delimiter=";")
-    jentenavn = ""
-    for row in rdr:
-        jentenavn += " " + row[0][0].upper() + row[0][1:].lower() + " |"
-
-    jentenavn = jentenavn[5:-1]
-    #print(jentenavn)
+def has_postal(txt):
+    postal = pattern_postal.search(txt)
+    return postal is not None
 
 
-    rex = f"(({guttenavn})|({jentenavn}))({etternavn})"
-    #print(rex)
-    person_names = re.search(rex, txt) is not None
+def has_phone_number(txt):
+    phone = pattern_phone.search(txt)
+    return phone is not None
 
 
-    # Postal code + city
-    source = open("res/Postnummerregister-ansi.txt", encoding="iso 8859-1")
-    rdr = csv.reader(source, delimiter="\t")
-    postnummer = ""
+def has_norway(txt):
+    nor = pattern_norway.search(txt)
+    return nor is not None
 
-    for row in rdr:
-        postnummer += row[0] + " " + row[1] + "|"
 
-    postnummer = postnummer[:-1]
+def has_county(txt):
+    cou = pattern_counties.search(txt)
+    return cou is not None
 
-    location = re.search(postnummer, txt, re.IGNORECASE) is not None
 
-    #phone or name or counties or person_names or location
-    return phone or name or counties or person_names or location
+def has_any_regex(txt):
+    return has_name(txt) or has_postal(txt) or has_phone_number(txt) or has_norway(txt) or has_county(txt)
 
 
 if __name__ == '__main__':
-    # model = LanguageModel(["no", "other"], weights="LM3.h5")
+    # model = LanguageModel(["no", "other"], weights="LM6.h5")
     for file in os.listdir("res/oos_liste_03.01.19"):
         if not re.match("uri_(\W|no)", file):
             f = open(f"res/oos_liste_03.01.19/{file}")
@@ -113,19 +127,36 @@ if __name__ == '__main__':
                     txt = get_text(url)
 
                     try:
-                        lang = pycld2.detect(txt, isPlainText=True)
-                        print(lang)
-                        # if lang == "NORWEGIAN":
-                        #     print(s)
+                        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True)
+                        if is_reliable:
+                            for lang, code, percent, score in details:
+                                if code in ["no", "nn"]:
+                                    nor_score = bytes_found * percent * score / 1.5e7
+                                    print("NORWEGIAN", nor_score, details)
                     except pycld2.error:
                         print(f"ERROR")
 
-                    split = [s for s in split_and_clean(txt)]
+                    if has_postal(txt):
+                        print("POSTAL")
 
-                    for s in split:
-                        if reg(s):
-                            print(url)
-                            print(s)
+                    if has_phone_number(txt):
+                        print("PHONE")
+
+                    if has_county(txt):
+                        print("COUNTY")
+
+                    if has_name(txt):
+                        print("NAME")
+
+                    if has_norway(txt):
+                        print("NORWAY")
+
+                    # split = [s for s in split_and_clean(txt)]
+
+                    # for s in split:
+                    #     if has_any_regex(s):
+                    #         print(url)
+                    #         print(s)
 
                     # for s in split:
                     #     if geo(s):

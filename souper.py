@@ -15,7 +15,7 @@ reader = Reader('res/GeoIP2-Country.mmdb')
 
 
 def _get_names(file, delimiter=";"):
-    source = open("res/etternavn.csv")
+    source = open(file)
     rdr = csv.reader(source, delimiter=delimiter)
     names = ""
     for row in rdr:

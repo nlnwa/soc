@@ -213,19 +213,19 @@ class LanguageModel:
             path = f"LanguageModel-{len(self.languages)}-{self.tokenizer.num_words}.hdf5"
         self.model.save_weights(path)
 
-    def lr_plot(self, texts, labels, batch=8):
+    def lr_plot(self, texts, labels, batch=32):
         model = get_model(self.model.input_shape[-1], self.tokenizer.num_words, len(self.languages), lr=1e-5)
         model.save_weights("tmp.h5")
 
-        lrcb = LearningRateScheduler(lambda x, y: y * 2)
+        lrcb = LearningRateScheduler(lambda x, y: y * 1.5)
         escb = EarlyStopping("loss", patience=3)
 
         class Reset(Callback):
             def on_epoch_begin(self, epoch, logs=None):
                 self.model.load_weights("tmp.h5")
 
-        data = self._convert_data(texts, labels, batch_size=batch, epochs=16, shuffle=True)
-        history = model.fit(data, steps_per_epoch=len(texts) // batch + 1, epochs=16, callbacks=[lrcb, Reset(), escb])
+        data = self._convert_data(texts, labels, batch_size=batch, epochs=24, shuffle=True)
+        history = model.fit(data, steps_per_epoch=len(texts) // batch + 1, epochs=24, callbacks=[lrcb, Reset(), escb])
         loss = history.history["loss"]
         lr = history.history["lr"]
         # plt.plot(lr, loss)
@@ -236,7 +236,7 @@ class LanguageModel:
 
 def split_and_clean(txt):
     txt = re.sub(r"\s+", " ", txt)
-    split = re.split("[.?!] ?", txt)
+    split = re.split(r"[.?!\t\r\n\f]+", txt)
     for s in split:
         s = s.strip()
         if len(s) > 8:

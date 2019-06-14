@@ -21,14 +21,14 @@ ensure_end = "([^[A-ZÆØÅa-zæøå]|$)"
 boy_names = "|".join(expressions["boy_names"])
 girl_names = "|".join(expressions["girl_names"])
 surnames = "|".join(expressions["surnames"])
-postal = "|".join(expressions["postal"])
+postal_codes = "|".join(expressions["postal"])
 norway_names = "|".join(expressions["norway_names"])
 counties = "|".join(expressions["counties"])
 
 # Patterns
 pattern_names = re.compile(f"{ensure_start}(({boy_names}|{girl_names}) ({surnames})){ensure_end}")
-pattern_postal = re.compile(postal, re.IGNORECASE)
-pattern_phone = re.compile(r"((\(?(\+|00)?47\)?)( ?\d){8})")  # eg. "+47 51 99 00 00"
+pattern_postal = re.compile(postal_codes, re.IGNORECASE)
+pattern_phone = re.compile(r"([^\d]|^)((\(?(\+|00)?47\)?)( ?\d){8})([^\d]|$)")  # eg. "+47 51 99 00 00"
 pattern_norway = re.compile(f"{ensure_start}(norwegian|norsk|{norway_names}){ensure_end}", re.IGNORECASE)
 pattern_counties = re.compile(f"{ensure_start}({counties}){ensure_end}", re.IGNORECASE)
 
@@ -37,6 +37,14 @@ def get_text(url):
     with urlopen(url, timeout=10) as html:
         # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
         soup = BeautifulSoup(html, "html.parser")
+
+        for link in soup.findAll("a", href=True):
+            # print(link.text)
+            if ".no" in link["href"]:
+                print("Nor:", link["href"])
+            # if pattern_norway.search(link.text):
+            #     print("Nor:", link["href"])
+            # print(link["href"])
 
         [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
@@ -79,7 +87,7 @@ def has_postal(txt):
 
 def has_phone_number(txt):
     phones = pattern_phone.findall(txt)
-    return [p[0] for p in phones]
+    return [p[1] for p in phones]
 
 
 def has_norway(txt):

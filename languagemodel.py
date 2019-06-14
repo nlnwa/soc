@@ -1,9 +1,8 @@
+import random
 import re
-from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import confusion_matrix, classification_report
 from tensorflow.python.data import Dataset
 from tensorflow.python.keras import Input, Model
 from tensorflow.python.keras.activations import softmax
@@ -60,7 +59,8 @@ def get_model(window_size, alphabet_size, output_size, lr=1e-3, gpu=None):
         gpu = len(_get_available_gpus()) > 0
 
     inp = Input((window_size,))
-    x = Embedding(alphabet_size, 16, mask_zero=True)(inp)
+    x = Embedding(alphabet_size, 16, mask_zero=gpu)(inp)
+    x = LSTM(128, return_sequences=True)(x) if not gpu else CuDNNLSTM(128, return_sequences=True)(x)
     x = LSTM(128)(x) if not gpu else CuDNNLSTM(128)(x)
     x = Dropout(0.25)(x)
     x = Dense(64)(x)
@@ -244,50 +244,45 @@ def split_and_clean(txt):
 
 
 if __name__ == '__main__':
-    x_train, y_train = [], []
-    x_val, y_val = [], []
-    langs = ["no", "other"]
+    langs = ["nob", "nno"]
 
-    for x, y in zip(open("res/wili-2018/x_train.txt"), open("res/wili-2018/y_train.txt")):
-        y = y.strip()
-        for s in split_and_clean(x):
-            x_train.append(s)
-            if y in ["nob", "nno"]:
-                y_train.append("no")
-            else:
-                y_train.append("other")
+    nowiki = open("nowiki.txt").read()
+    nnwiki = open("nnwiki.txt").read()
 
-    for x, y in zip(open("res/wili-2018/x_test.txt"), open("res/wili-2018/y_test.txt")):
-        y = y.strip()
-        for s in split_and_clean(x):
-            x_val.append(s)
-            if y in ["nob", "nno"]:
-                y_val.append("no")
-            else:
-                y_val.append("other")
+    no_split = nowiki.split("\n\n")
+    nn_split = nnwiki.split("\n\n")
 
-    print(Counter(y_train).most_common())
-    print(Counter(y_val).most_common())
+    no = [(s, "nob") for t in no_split for s in split_and_clean(t)]
+    nn = [(s, "nno") for t in nn_split for s in split_and_clean(t)]
 
-    model = LanguageModel(languages=langs, lr=1e-4)
+    print(len(no), len(nn))
 
-    model.lr_plot(x_train[:10000], y_train[:10000])
+    train = random.sample(no, 1000000)
+    train += random.sample(nn, 1000000)
 
-    exit(0)
+    random.shuffle(train)
+
+    x_train, y_train = zip(*train)
+
+    model = LanguageModel(languages=langs, lr=3e-4)
 
     lrcb = ReduceLROnPlateau(patience=4)
     escb = EarlyStopping(patience=8, restore_best_weights=True)
-    mccb = ModelCheckpoint("LM4.h5", save_best_only=True, save_weights_only=True)
+    mccb = ModelCheckpoint("LMX.h5", save_best_only=True, save_weights_only=True)
 
-    model.train(x_train + x_val, y_train + y_val, val_split=len(x_train), batch_size=8, epochs=128, verbose=1,
+    print(train[:100])
+    print(x_train[:100])
+    print(y_train[:100])
+
+    model.train(x_train, y_train, val_split=0.8, batch_size=32, epochs=128, verbose=1,
                 callbacks=[lrcb, escb, mccb])
 
-    pre = model.predict(x_val)
-
-    for s, p, a in zip(x_val, pre, y_val):
-        if p != a:
-            print(p, a, s)
-
-    print(confusion_matrix(y_val, pre, langs))
-    print(classification_report(y_val, pre, langs))
-    model.save()
+    # pre = model.predict(x_val)
+    #
+    # for s, p, a in zip(x_val, pre, y_val):
+    #     if p != a:
+    #         print(p, a, s)
+    #
+    # print(confusion_matrix(y_val, pre, langs))
+    # print(classification_report(y_val, pre, langs))
+    # model.save()

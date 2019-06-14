@@ -1,4 +1,4 @@
-import csv
+import json
 import os
 import re
 import socket
@@ -13,53 +13,24 @@ from geoip2.database import Reader
 
 reader = Reader('res/GeoIP2-Country.mmdb')
 
+expressions = json.load(open("res/expressions.json"))
 
-def _get_names(file, delimiter=";"):
-    source = open(file)
-    rdr = csv.reader(source, delimiter=delimiter)
-    names = ""
-    for row in rdr:
-        names += row[0][0].upper() + row[0][1:].lower() + "|"
+ensure_start = "([^[A-ZÆØÅa-zæøå]|^)"
+ensure_end = "([^[A-ZÆØÅa-zæøå]|$)"
 
-    names = names[5:-1]
-    return names
-
-
-surnames = _get_names("res/etternavn.csv")
-boy_names = _get_names("res/guttenavn_alle.csv")
-girl_names = _get_names("res/jentenavn_alle.csv")
-
-rex = f"(({boy_names})|({girl_names})) ({surnames})"
-
-# Postal code + city
-source = open("res/Postnummerregister-ansi.txt", encoding="iso 8859-1")
-rdr = csv.reader(source, delimiter="\t")
-postal = ""
-
-for row in rdr:
-    postal += row[0] + " " + row[1] + "|"
-
-postal = postal[:-1]
+boy_names = "|".join(expressions["boy_names"])
+girl_names = "|".join(expressions["girl_names"])
+surnames = "|".join(expressions["surnames"])
+postal = "|".join(expressions["postal"])
+norway_names = "|".join(expressions["norway_names"])
+counties = "|".join(expressions["counties"])
 
 # Patterns
-pattern_names = re.compile(rex)
+pattern_names = re.compile(f"{ensure_start}(({boy_names}|{girl_names}) ({surnames})){ensure_end}")
 pattern_postal = re.compile(postal, re.IGNORECASE)
-pattern_phone = re.compile(r"(\(?(\+|00)?47\)?)( ?\d){8}")  # eg. "+47 51 99 00 00"
-
-norway_names = "an Iorua|Naraoẏe|নরওয়ে|Na Uy|Nirribhidh|Noorweë|Noorwegen|Norge|Noreg|Noregur|Noreuwei|Norŭwei|노르웨이|" \
-               "Norga|Norge|Norja|Norra|Norsko|Nórsko|Noruega|Noruwega|Noruwē|ノルウェー|Norveç|Norvèg·e|Norvège|" \
-               "Norvegia|Norvégia|Norvehia|Норвегія|Norvēģija|Norvegija|Norvegio|Norvegiya|Норвегия|Norvegiya" \
-               "|נורבגיה|" \
-               "in-Norveġja|Norvegjia|Norvegye|נאָרװעגיע|Norveška|Норвешка|Norveška|Norvigía|Νορβηγία|Norway|" \
-               "Norway|නෝර්වේ|Norweege|Norwegen|Norwègia|Norwegia|Norwegska|Norwéy|ኖርዌይ|Norwij|Nowe|นอร์เวย์|" \
-               "Norwy|Nuówēi|挪威|Nuruwai|நோர்வே"
-
-pattern_norway = re.compile(f"{norway_names}|norwegian|norsk", re.IGNORECASE)
-pattern_counties = re.compile(
-    r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|romsdal|nordland|oppland|oslo|"
-    r"rogaland|sogn|fjordane|telemark|troms|trøndelag|vest.?agder|vestfold|østfold", re.IGNORECASE)
-
-assert pattern_phone.search("(+47) 902 51 088")
+pattern_phone = re.compile(r"((\(?(\+|00)?47\)?)( ?\d){8})")  # eg. "+47 51 99 00 00"
+pattern_norway = re.compile(f"{ensure_start}(norwegian|norsk|{norway_names}){ensure_end}", re.IGNORECASE)
+pattern_counties = re.compile(f"{ensure_start}({counties}){ensure_end}", re.IGNORECASE)
 
 
 def get_text(url):
@@ -78,38 +49,47 @@ def geo(url):
         ip = socket.gethostbyname(urlparse(data.geturl()).hostname)
         response = reader.country(ip)
 
-        return response.country.iso_code == "NO"
+        return response.country.iso_code
     except socket.gaierror:
         return False
 
 
+def has_norwegian(txt):
+    try:
+        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True)
+        if is_reliable:
+            for lang, code, percent, score in details:
+                if code in ["no", "nn"]:
+                    nor_score = bytes_found * percent * score / 1.5e7
+                    return nor_score
+        return 0
+    except pycld2.error:
+        return -1
+
+
 def has_name(txt):
-    names = pattern_names.search(txt)
-    return names is not None
+    names = pattern_names.findall(txt)
+    return [n[1] for n in names]
 
 
 def has_postal(txt):
-    postal = pattern_postal.search(txt)
-    return postal is not None
+    postals = pattern_postal.findall(txt)
+    return postals
 
 
 def has_phone_number(txt):
-    phone = pattern_phone.search(txt)
-    return phone is not None
+    phones = pattern_phone.findall(txt)
+    return [p[0] for p in phones]
 
 
 def has_norway(txt):
-    nor = pattern_norway.search(txt)
-    return nor is not None
+    nor = pattern_norway.findall(txt)
+    return [n[1] for n in nor]
 
 
 def has_county(txt):
-    cou = pattern_counties.search(txt)
-    return cou is not None
-
-
-def has_any_regex(txt):
-    return has_name(txt) or has_postal(txt) or has_phone_number(txt) or has_norway(txt) or has_county(txt)
+    cou = pattern_counties.findall(txt)
+    return [c[1] for c in cou]
 
 
 if __name__ == '__main__':
@@ -121,46 +101,24 @@ if __name__ == '__main__':
                 url = url.strip()
                 try:
                     print(url)
-                    # if geo(url):
-                    #     print("Norwegian")
 
                     txt = get_text(url)
 
-                    try:
-                        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True)
-                        if is_reliable:
-                            for lang, code, percent, score in details:
-                                if code in ["no", "nn"]:
-                                    nor_score = bytes_found * percent * score / 1.5e7
-                                    print("NORWEGIAN", nor_score, details)
-                    except pycld2.error:
-                        print(f"ERROR")
+                    norwegian = has_norwegian(txt)
+                    postal = has_postal(txt)
+                    phone = has_phone_number(txt)
+                    county = has_county(txt)
+                    name = has_name(txt)
+                    norway = has_norway(txt)
+                    geoloc = geo(url)
 
-                    if has_postal(txt):
-                        print("POSTAL")
+                    print("Norwegian:", norwegian)
+                    print("Postal:", postal)
+                    print("Phone:", phone)
+                    print("County:", county)
+                    print("Name:", name)
+                    print("Norway:", norway)
+                    print("Geo:", geoloc)
 
-                    if has_phone_number(txt):
-                        print("PHONE")
-
-                    if has_county(txt):
-                        print("COUNTY")
-
-                    if has_name(txt):
-                        print("NAME")
-
-                    if has_norway(txt):
-                        print("NORWAY")
-
-                    # split = [s for s in split_and_clean(txt)]
-
-                    # for s in split:
-                    #     if has_any_regex(s):
-                    #         print(url)
-                    #         print(s)
-
-                    # for s in split:
-                    #     if geo(s):
-                    #         print(s)
                 except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout):
                     pass
-                    # print("Error")

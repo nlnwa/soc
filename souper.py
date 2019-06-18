@@ -2,10 +2,12 @@ import json
 import os
 import re
 import socket
+import requests
+from urllib.parse import urlparse, urlunparse
 from http.client import IncompleteRead
 from ssl import CertificateError
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen, urlparse
+from urllib.request import urlopen
 
 import pycld2
 from bs4 import BeautifulSoup
@@ -120,13 +122,74 @@ if __name__ == '__main__':
                     norway = has_norway(txt)
                     geoloc = geo(url)
 
+
+                    parsed = urlparse(url)
+                    base_url = parsed.netloc
+                    url_parts = base_url.split('.')
+                    if url_parts[-1] != "no":
+                        url_parts[-1] = "no"
+                        new_base_url = ""
+                        for part in url_parts:
+                            new_base_url += part + "."
+
+                        new_base_url = new_base_url[:-1]
+                        # print(new_base_url)
+                        new_full_url = urlunparse((parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+                        try:
+                            r = requests.head(new_full_url)
+                            if r.status_code == 200 or 301 or 302:
+                                print("There exists a possible norwegian version at this page:", new_full_url)
+                        except requests.ConnectionError:
+                            # print("failed to connect")
+                            pass
+
+
+                    postal_value = 0
+                    phone_value = 0
+                    county_value = 0
+                    name_value = 0
+                    norway_value = 0
+                    geo_value = 0
+
+                    if len(postal):
+                        postal_value = len(postal)
+
+                    if len(phone):
+                        phone_value = len(phone)
+
+                    if len(county):
+                        county_value = len(county)
+
+                    if len(name):
+                        name_value = len(name)
+
+                    if len(norway):
+                        norway_value = len(norway)
+
+                    if geoloc and geoloc == 'NO':
+                        geo_value = 1
+
+                    postal_value = postal_value * 2
+                    phone_value = phone_value * 0.5
+                    county_value = county_value * 1
+                    name_value = name_value * 0.3
+                    norway_value = norway_value * 0.2
+                    geo_value = geo_value * 0.05
+
+                    score = norwegian + postal_value + phone_value + county_value + name_value + norway_value + geo_value
+                    # print("Score: ", score)
+                    if score > 2:
+                        print("Probably norwegian")
+
+
                     print("Norwegian:", norwegian)
-                    print("Postal:", postal)
-                    print("Phone:", phone)
-                    print("County:", county)
-                    print("Name:", name)
-                    print("Norway:", norway)
-                    print("Geo:", geoloc)
+                    print("Postal:", "Score:", postal_value, postal)
+                    print("Phone:", "Score:", phone_value, phone)
+                    print("County:", "Score:", county_value, county)
+                    print("Name:", "Score:", name_value, name)
+                    print("Norway:", "Score:", norway_value, norway)
+                    print("Geo:", "Score:", geo_value, geoloc)
+                    print("Total score:", score)
 
                 except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout):
                     pass

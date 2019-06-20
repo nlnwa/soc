@@ -9,10 +9,12 @@ from itertools import chain
 from ssl import CertificateError
 from threading import Thread
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen
+from http import HTTPStatus
 
 import pycld2
+import requests
 from bs4 import BeautifulSoup
 from geoip2.database import Reader
 
@@ -108,11 +110,18 @@ def has_county(txt):
 
 # TODO sjekk URL på nytt etter redirect?
 
+def get_ip(url):
+    try:
+        data = urlopen(url)
+        ip = socket.gethostbyname(urlparse(data.geturl()).hostname)
+        return ip
+    except socket.gaierror:
+        return False
+
 def iter_urls(urls):
     for url in urls:
         url = url.strip()
         try:
-            # DataFrame()
             print(url)
 
             txt = get_text(url)
@@ -126,26 +135,143 @@ def iter_urls(urls):
             norway = has_norway(txt)
             geoloc = geo(url)
 
-            # parsed = urlparse(url)
-            # base_url = parsed.netloc
-            # url_parts = base_url.split('.')
-            # if url_parts[-1] != "no":
-            #     url_parts[-1] = "no"
-            #     new_base_url = ""
-            #     for part in url_parts:
-            #         new_base_url += part + "."
-            #
-            #     new_base_url = new_base_url[:-1]
-            #     # print(new_base_url)
-            #     new_full_url = urlunparse(
-            #         (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
-            #     try:
-            #         r = requests.head(new_full_url)
-            #         if r.status_code == 200 or 301 or 302:
-            #             print("There exists a possible norwegian version at this page:", new_full_url)
-            #     except requests.ConnectionError:
-            #         # print("failed to connect")
-            #         pass
+            # OBS! redirect url not always better, i.e http://www.kyocera.nl vs https://netherlands.kyocera.com/
+            url_info = requests.get(url)
+            redir_url = url_info.url
+
+            # Original url .no
+            parsed = urlparse(url)
+            base_url = parsed.netloc
+            url_parts = base_url.split('.')
+            if url_parts[-1] != "no":
+                url_parts[-1] = "no"
+                new_base_url = ""
+                for part in url_parts:
+                    new_base_url += part + "."
+
+                new_base_url = new_base_url[:-1]
+
+                new_full_url = urlunparse(
+                    (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+                # print(".no url:", new_full_url)
+
+            # Redirected url .no
+            parsed = urlparse(redir_url)
+            base_url = parsed.netloc
+            url_parts = base_url.split('.')
+            if url_parts[-1] != "no":
+                url_parts[-1] = "no"
+                new_base_url = ""
+                for part in url_parts:
+                    new_base_url += part + "."
+
+                new_base_url = new_base_url[:-1]
+
+                new_full_url_redir = urlunparse(
+                    (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+                # print(".no url redirect:", new_full_url_redir)
+
+                # print(".no url made from redir url:", new_full_url_redir)
+                # print(".no url:", new_full_url)
+
+                try:
+                    r_redir = requests.get(new_full_url_redir)
+                    r = requests.get(new_full_url)
+
+                    if (r_redir.status_code == HTTPStatus.OK
+                            or r_redir.status_code == HTTPStatus.MOVED_PERMANENTLY
+                            or r_redir.status_code == HTTPStatus.FOUND):
+                        print(".no url:", new_full_url_redir)
+                        redir_url_no = r_redir.url
+                        print("Redirect .no url:", redir_url_no)
+
+                        o_ip = get_ip(url).split(".")
+                        n_ip = get_ip(new_full_url).split(".")
+
+                        original_ip_full = ".".join(o_ip)
+                        original_ip_3 = ".".join(o_ip[:-1])
+                        original_ip_2 = ".".join(o_ip[:-2])
+
+                        new_ip_full = ".".join(n_ip)
+                        new_ip_3 = ".".join(n_ip[:-1])
+                        new_ip_2 = ".".join(n_ip[:-2])
+
+                        print("original ip:", original_ip_full)
+                        print("new ip:", new_ip_full)
+
+                        # Check if the IPs match. 3 and 2 is due to subnet masking, but not 100% failsafe. IPv4
+                        if original_ip_full == new_ip_full:
+                            print("There exists a norwegian version at this page:", new_full_url)
+                        elif original_ip_3 == new_ip_3:
+                            print("There exists a probable norwegian version at this page:", new_full_url)
+                        elif original_ip_2 == new_ip_2:
+                            print("There exists a possible norwegian version at this page:", new_full_url)
+
+                    elif (r.status_code == HTTPStatus.OK or r.status_code == HTTPStatus.MOVED_PERMANENTLY
+                          or r.status_code == HTTPStatus.FOUND):
+                            print(".no url:", new_full_url)
+                            redir_url_no = r.url
+
+                            if redir_url_no != new_full_url:
+                                print("Redirect .no url:", redir_url_no)
+
+                            o_ip = get_ip(url).split(".")
+                            n_ip = get_ip(new_full_url).split(".")
+
+                            original_ip_full = ".".join(o_ip)
+                            original_ip_3 = ".".join(o_ip[:-1])
+                            original_ip_2 = ".".join(o_ip[:-2])
+
+                            new_ip_full = ".".join(n_ip)
+                            new_ip_3 = ".".join(n_ip[:-1])
+                            new_ip_2 = ".".join(n_ip[:-2])
+
+                            print("original ip:", original_ip_full)
+                            print("new ip:", new_ip_full)
+
+                            # Check if the IPs match. 3 and 2 is due to subnet masking, but not 100% failsafe. IPv4
+                            if original_ip_full == new_ip_full:
+                                print("There exists a norwegian version at this page:", new_full_url)
+                            elif original_ip_3 == new_ip_3:
+                                print("There exists a probable norwegian version at this page:", new_full_url)
+                            elif original_ip_2 == new_ip_2:
+                                print("There exists a possible norwegian version at this page:", new_full_url)
+
+                except (requests.ConnectionError, requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError):
+                    try:
+                        r = requests.get(new_full_url)
+                        if (r.status_code == HTTPStatus.OK or r.status_code == HTTPStatus.MOVED_PERMANENTLY
+                                or r.status_code == HTTPStatus.FOUND):
+                            redir_url_no = r.url
+
+                            if redir_url_no != new_full_url:
+                                print("Redirect .no url:", redir_url_no)
+
+                            o_ip = get_ip(url).split(".")
+                            n_ip = get_ip(new_full_url).split(".")
+
+                            original_ip_full = ".".join(o_ip)
+                            original_ip_3 = ".".join(o_ip[:-1])
+                            original_ip_2 = ".".join(o_ip[:-2])
+
+                            new_ip_full = ".".join(n_ip)
+                            new_ip_3 = ".".join(n_ip[:-1])
+                            new_ip_2 = ".".join(n_ip[:-2])
+
+                            print("original ip:", original_ip_full)
+                            print("new ip:", new_ip_full)
+
+                            # Check if the IPs match. 3 and 2 is due to subnet masking, but not 100% failsafe. IPv4
+                            if original_ip_full == new_ip_full:
+                                print("There exists a norwegian version at this page:", new_full_url)
+                            elif original_ip_3 == new_ip_3:
+                                print("There exists a probable norwegian version at this page:", new_full_url)
+                            elif original_ip_2 == new_ip_2:
+                                print("There exists a possible norwegian version at this page:", new_full_url)
+
+                    except (requests.ConnectionError, requests.exceptions.ConnectionError,
+                            requests.exceptions.ChunkedEncodingError):
+                        pass
 
             fw.write(
                 f"{url},{domain},{bytes_found / 1000},{percentage},{score},{len(postal)},{sum(postal.values())},{len(phone)},"

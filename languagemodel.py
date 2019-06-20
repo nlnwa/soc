@@ -1,5 +1,4 @@
 import random
-import re
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,7 +8,7 @@ from tensorflow.python.keras.activations import softmax
 from tensorflow.python.keras.backend import _get_available_gpus
 from tensorflow.python.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint, LearningRateScheduler, \
     Callback
-from tensorflow.python.keras.layers import Embedding, LSTM, Dense, Dropout, CuDNNLSTM
+from tensorflow.python.keras.layers import Embedding, LSTM, Dense, Dropout, CuDNNLSTM, Bidirectional
 from tensorflow.python.keras.losses import categorical_crossentropy
 from tensorflow.python.keras.metrics import categorical_accuracy
 from tensorflow.python.keras.optimizers import adam
@@ -19,29 +18,27 @@ from tensorflow.python.keras.utils import to_categorical
 
 # import tensorflow.python.keras.backend as K
 #
+from split_wiki import split_and_clean
+
 LATIN_ALPHABET = " abcdefghijklmnopqrstuvwxyz0123456789"
 NORWEGIAN_ALPHABET = LATIN_ALPHABET + "æøå"
 
 
-#
-# weights = np.ones((3, 3))
-# weights[0, 2] = 128
-# weights[1, 2] = 128
-#
-# weights[2, 0] = 16
-# weights[2, 1] = 16
-#
-#
-# # https://github.com/keras-team/keras/issues/2115
-# def w_categorical_crossentropy(y_true, y_pred):
-#     nb_cl = len(weights)
-#     final_mask = K.zeros_like(y_pred[:, 0])
-#     y_pred_max = K.max(y_pred, axis=1)
-#     y_pred_max = K.reshape(y_pred_max, (K.shape(y_pred)[0], 1))
-#     y_pred_max_mat = K.equal(y_pred, y_pred_max)
-#     for c_p, c_t in product(range(nb_cl), range(nb_cl)):
-#         final_mask += (weights[c_t, c_p] * y_pred_max_mat[:, c_p] * y_true[:, c_t])
-#     return K.categorical_crossentropy(y_pred, y_true) * final_mask
+def lstm_block(input, units, gpu, sequences=True, bi=False, drop=0.25):
+    # Simple block with (optionally bidirectional) LSTM and Dropout
+    x = input
+    if gpu:
+        mem = CuDNNLSTM(units, return_sequences=sequences)
+    else:
+        mem = LSTM(units, return_sequences=sequences)
+    if bi:
+        mem = Bidirectional(mem)
+    x = mem(x)
+
+    if drop is not None:
+        x = Dropout(drop)(x)
+
+    return x
 
 
 def get_model(window_size, alphabet_size, output_size, lr=1e-3, gpu=None):
@@ -59,14 +56,10 @@ def get_model(window_size, alphabet_size, output_size, lr=1e-3, gpu=None):
         gpu = len(_get_available_gpus()) > 0
 
     inp = Input((window_size,))
-    x = Embedding(alphabet_size, 16, mask_zero=gpu)(inp)
-    x = LSTM(128, return_sequences=True)(x) if not gpu else CuDNNLSTM(128, return_sequences=True)(x)
-    x = LSTM(128)(x) if not gpu else CuDNNLSTM(128)(x)
-    x = Dropout(0.25)(x)
-    x = Dense(64)(x)
-    x = Dropout(0.25)(x)
-    x = Dense(32)(x)
-    x = Dropout(0.25)(x)
+    x = Embedding(alphabet_size, 16, mask_zero=(not gpu))(inp)
+    x = lstm_block(x, 64, gpu)
+    x = lstm_block(x, 64, gpu)
+    x = lstm_block(x, 16, gpu, False)(x)
     x = Dense(output_size, softmax)(x)
     model = Model(inputs=inp, outputs=x)
     if lr is not None:
@@ -232,15 +225,6 @@ class LanguageModel:
         plt.loglog(lr, loss)
         plt.legend(["Loss"])
         plt.show()
-
-
-def split_and_clean(txt):
-    txt = re.sub(r"\s+", " ", txt)
-    split = re.split(r"[.?!\t\r\n\f]+", txt)
-    for s in split:
-        s = s.strip()
-        if len(s) > 8:
-            yield s
 
 
 if __name__ == '__main__':

@@ -1,12 +1,15 @@
 import json
 import os
+import random
 import re
 import socket
-import requests
-from urllib.parse import urlparse, urlunparse
+from collections import Counter
 from http.client import IncompleteRead
+from itertools import chain
 from ssl import CertificateError
+from threading import Thread
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 import pycld2
@@ -40,13 +43,13 @@ def get_text(url):
         # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
         soup = BeautifulSoup(html, "html.parser")
 
-        for link in soup.findAll("a", href=True):
-            # print(link.text)
-            if ".no" in link["href"]:
-                print("Nor:", link["href"])
-            # if pattern_norway.search(link.text):
-            #     print("Nor:", link["href"])
-            # print(link["href"])
+        # for link in soup.findAll("a", href=True):
+        #     # print(link.text)
+        #     if ".no" in link["href"]:
+        #         print("Nor:", link["href"])
+        #     # if pattern_norway.search(link.text):
+        #     #     print("Nor:", link["href"])
+        #     # print(link["href"])
 
         [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
@@ -64,132 +67,133 @@ def geo(url):
         return False
 
 
-def has_norwegian(txt):
+def has_norwegian(txt, domain):
     try:
-        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True)
+        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
         if is_reliable:
             for lang, code, percent, score in details:
                 if code in ["no", "nn"]:
-                    nor_score = bytes_found * percent * score / 1.5e7
-                    return nor_score
-        return 0
+                    return bytes_found, percent, score
+                    # nor_score = bytes_found * percent * score
+                    # return nor_score
+        return bytes_found, 0, 0
     except pycld2.error:
-        return -1
+        return 0, 0, 0
 
 
 def has_name(txt):
     names = pattern_names.findall(txt)
-    return [n[1] for n in names]
+    return Counter(n[1] for n in names)
 
 
 def has_postal(txt):
     postals = pattern_postal.findall(txt)
-    return postals
+    return Counter(postals)
 
 
 def has_phone_number(txt):
     phones = pattern_phone.findall(txt)
-    return [p[1] for p in phones]
+    return Counter(p[1].replace(" ", "") for p in phones)
 
 
 def has_norway(txt):
     nor = pattern_norway.findall(txt)
-    return [n[1] for n in nor]
+    return Counter(n[1] for n in nor)
 
 
 def has_county(txt):
     cou = pattern_counties.findall(txt)
-    return [c[1] for c in cou]
+    return Counter(c[1] for c in cou)
+
+
+# TODO sjekk URL på nytt etter redirect?
+
+def iter_urls(urls):
+    for url in urls:
+        url = url.strip()
+        try:
+            # DataFrame()
+            print(url)
+
+            txt = get_text(url)
+            domain = url.split(".")[-1]
+
+            bytes_found, percentage, score = has_norwegian(txt, domain)
+            postal = has_postal(txt)
+            phone = has_phone_number(txt)
+            county = has_county(txt)
+            name = has_name(txt)
+            norway = has_norway(txt)
+            geoloc = geo(url)
+
+            # parsed = urlparse(url)
+            # base_url = parsed.netloc
+            # url_parts = base_url.split('.')
+            # if url_parts[-1] != "no":
+            #     url_parts[-1] = "no"
+            #     new_base_url = ""
+            #     for part in url_parts:
+            #         new_base_url += part + "."
+            #
+            #     new_base_url = new_base_url[:-1]
+            #     # print(new_base_url)
+            #     new_full_url = urlunparse(
+            #         (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+            #     try:
+            #         r = requests.head(new_full_url)
+            #         if r.status_code == 200 or 301 or 302:
+            #             print("There exists a possible norwegian version at this page:", new_full_url)
+            #     except requests.ConnectionError:
+            #         # print("failed to connect")
+            #         pass
+
+            fw.write(
+                f"{url},{domain},{bytes_found / 1000},{percentage},{score},{len(postal)},{sum(postal.values())},{len(phone)},"
+                f"{sum(phone.values())},{len(county)},{sum(county.values())},{len(name)},"
+                f"{sum(name.values())},{len(norway)},{sum(norway.values())},{geoloc}\n")
+
+            # print("Score: ", score)
+            # if score > 2:
+            #     print("Probably norwegian")
+
+            # print("Norwegian:", norwegian)
+            # print("Postal:", "Score:", postal_value, postal)
+            # print("Phone:", "Score:", phone_value, phone)
+            # print("County:", "Score:", county_value, county)
+            # print("Name:", "Score:", name_value, name)
+            # print("Norway:", "Score:", norway_value, norway)
+            # print("Geo:", "Score:", geo_value, geoloc)
+            # print("Total score:", score)
+
+        except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout):
+            pass
 
 
 if __name__ == '__main__':
+    # df = DataFrame.from_csv("uri_scores.csv", index_col=None)
+    #
+    # df["Norwegian"] = df["Norwegian"].apply(lambda x: log(x + 1) if x >= 0 else 0)
+    # fltr = df["URL"].str.contains(r"\.no$")
+    # df = df[~fltr]
+    #
+    # df.to_csv("uri_scores_log_nono.csv", index=False)
+    #
+    # exit(0)
+
+    fw = open("uri_scores3.csv", "w")
+    fw.write("URL,Domain,KBytes,Percentage,Score,Postal_t,Postal_u,Phone_t,Phone_u,County_t,County_u,Name_t,Name_u,Norway_t,Norway_u,Geoloc\n")
     # model = LanguageModel(["no", "other"], weights="LM6.h5")
-    for file in os.listdir("res/oos_liste_03.01.19"):
-        if not re.match("uri_(\W|no)", file):
+    i = 0
+    it = []
+    files = os.listdir("res/oos_liste_03.01.19")
+    random.shuffle(files)  # Hopefully distributes urls evenly
+    for file in files:
+        if not re.match(r"uri_(\W)", file):
             f = open(f"res/oos_liste_03.01.19/{file}")
-            for url in f:
-                url = url.strip()
-                try:
-                    print(url)
-
-                    txt = get_text(url)
-
-                    norwegian = has_norwegian(txt)
-                    postal = has_postal(txt)
-                    phone = has_phone_number(txt)
-                    county = has_county(txt)
-                    name = has_name(txt)
-                    norway = has_norway(txt)
-                    geoloc = geo(url)
-
-
-                    parsed = urlparse(url)
-                    base_url = parsed.netloc
-                    url_parts = base_url.split('.')
-                    if url_parts[-1] != "no":
-                        url_parts[-1] = "no"
-                        new_base_url = ""
-                        for part in url_parts:
-                            new_base_url += part + "."
-
-                        new_base_url = new_base_url[:-1]
-                        # print(new_base_url)
-                        new_full_url = urlunparse((parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
-                        try:
-                            r = requests.head(new_full_url)
-                            if r.status_code == 200 or 301 or 302:
-                                print("There exists a possible norwegian version at this page:", new_full_url)
-                        except requests.ConnectionError:
-                            # print("failed to connect")
-                            pass
-
-
-                    postal_value = 0
-                    phone_value = 0
-                    county_value = 0
-                    name_value = 0
-                    norway_value = 0
-                    geo_value = 0
-
-                    if len(postal):
-                        postal_value = len(postal)
-
-                    if len(phone):
-                        phone_value = len(phone)
-
-                    if len(county):
-                        county_value = len(county)
-
-                    if len(name):
-                        name_value = len(name)
-
-                    if len(norway):
-                        norway_value = len(norway)
-
-                    if geoloc and geoloc == 'NO':
-                        geo_value = 1
-
-                    postal_value = postal_value * 2
-                    phone_value = phone_value * 0.5
-                    county_value = county_value * 1
-                    name_value = name_value * 0.3
-                    norway_value = norway_value * 0.2
-                    geo_value = geo_value * 0.05
-
-                    score = norwegian + postal_value + phone_value + county_value + name_value + norway_value + geo_value
-                    # print("Score: ", score)
-                    if score > 2:
-                        print("Probably norwegian")
-
-
-                    print("Norwegian:", norwegian)
-                    print("Postal:", "Score:", postal_value, postal)
-                    print("Phone:", "Score:", phone_value, phone)
-                    print("County:", "Score:", county_value, county)
-                    print("Name:", "Score:", name_value, name)
-                    print("Norway:", "Score:", norway_value, norway)
-                    print("Geo:", "Score:", geo_value, geoloc)
-                    print("Total score:", score)
-
-                except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout):
-                    pass
+            it.append(f)
+            if i == 100:
+                i = 0
+                t = Thread(target=iter_urls, args=(chain.from_iterable(it),))
+                t.start()
+            i += 1
+            # iter_urls(f)

@@ -6,7 +6,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 print("Loading wiki...")
 
-wiki = re.split("\n\n", open("nowiki.txt").read())
+wiki = re.split("\n\n", open("res/wiki/nowiki.txt").read())
 wiki = [w.strip() for w in wiki]
 
 print("Wiki loaded. Vectorizing...")
@@ -38,7 +38,7 @@ print("Vectorized. Clustering...")
 
 clust = 16
 cluster = KMeans(n_clusters=clust).fit_predict(train)
-print(len(set(cluster)))
+
 
 clusters = {i: [] for i in range(clust)}
 for art, i in zip(wiki, cluster):
@@ -46,4 +46,7 @@ for art, i in zip(wiki, cluster):
     # print(re.split(r":\n", art, maxsplit=1)[0], i)
     # print(re.split(r":\n", art, maxsplit=1)[0], cluster.predict(vectorizer.transform([art])))
 
-print(json.dumps(clusters, indent=4, ensure_ascii=False))
+with open('clusters.json', 'w') as outfile:
+    json.dump(clusters, outfile, indent=4, ensure_ascii=False)
+
+print("Clustering done")

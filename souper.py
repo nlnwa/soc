@@ -38,33 +38,31 @@ pattern_norway = re.compile(f"{ensure_start}(norwegian|norsk|{norway_names}){ens
 pattern_counties = re.compile(f"{ensure_start}({counties}){ensure_end}", re.IGNORECASE)
 
 
-def get_text(url):
-    with urlopen(url, timeout=10) as html:
-        # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
-        soup = BeautifulSoup(html, "html.parser")
+# TODO implement kroner regex: \d+ ?(kr(oner)?|NOK)(?=([^\w]|$))
 
-        # for link in soup.findAll("a", href=True):
-        #     # print(link.text)
-        #     if ".no" in link["href"]:
-        #         print("Nor:", link["href"])
-        #     # if pattern_norway.search(link.text):
-        #     #     print("Nor:", link["href"])
-        #     # print(link["href"])
+def get_text(connection):
+    html = connection
+    # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
+    soup = BeautifulSoup(html, "html.parser")
 
-        [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
+    # for link in soup.findAll("a", href=True):
+    #     # print(link.text)
+    #     if ".no" in link["href"]:
+    #         print("Nor:", link["href"])
+    #     # if pattern_norway.search(link.text):
+    #     #     print("Nor:", link["href"])
+    #     # print(link["href"])
 
-        return soup.getText()
+    [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
+
+    return soup.getText()
 
 
-def geo(url):
-    try:
-        data = urlopen(url)
-        ip = socket.gethostbyname(urlparse(data.geturl()).hostname)
-        response = reader.country(ip)
+def geo(connection):
+    ip = get_ip(connection)
+    response = reader.country(ip)
 
-        return response.country.iso_code
-    except socket.gaierror:
-        return False
+    return response.country.iso_code
 
 
 def has_norwegian(txt, domain):
@@ -106,20 +104,9 @@ def has_county(txt):
     return Counter(c[1] for c in cou)
 
 
-# TODO fewer urlopen, only one needed
-
-def connect(url):
-    data = urlopen(url)
-    return urlparse(data.geturl())  # TODO return connection after redirect
-
-
-def get_ip(url):
-    try:
-        data = urlopen(url)
-        ip = socket.gethostbyname(urlparse(data.geturl()).hostname)
-        return ip
-    except socket.gaierror:
-        return False
+def get_ip(connection):
+    ip = socket.gethostbyname(urlparse(connection.geturl()).hostname)
+    return ip
 
 
 def has_norwegian_version(url):
@@ -165,10 +152,10 @@ def iter_urls(urls):
     for url in urls:
         url = url.strip()
         try:
-            # TODO connection should be established here, then passed around
             print(url)
+            connection = urlopen(url)
 
-            norwegian_version = has_norwegian_version(url)
+            norwegian_version = has_norwegian_version(connection)
             if norwegian_version[0] > 0:
                 # OBS! redirect url not always better, i.e http://www.kyocera.nl vs https://netherlands.kyocera.com/
                 print("There exists a norwegian version at this page:", norwegian_version)

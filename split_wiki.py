@@ -45,10 +45,11 @@ def split_and_clean(txt, min_len=16, max_len=256):
                 yield s
 
 
-for wiki in ["nowiki", "nnwiki"]:
-    sentences = split_articles(wiki)
-    tvt = train, val, test = train_val_test_split(sentences)
-    for d, n in zip(tvt, ["train", "val", "test"]):
-        f = open(f"{wiki}-{n}.txt", mode="w")
-        for line in d:
-            f.write(f"{line}\n")
+if __name__ == '__main__':
+    for wiki in ["nowiki", "nnwiki"]:
+        sentences = split_articles(wiki)
+        tvt = train, val, test = train_val_test_split(sentences)
+        for d, n in zip(tvt, ["train", "val", "test"]):
+            f = open(f"{wiki}-{n}.txt", mode="w")
+            for line in d:
+                f.write(f"{line}\n")

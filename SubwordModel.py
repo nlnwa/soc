@@ -3,7 +3,7 @@ from collections import Sized, Iterable
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets.public_api as tfds
-from tensorflow.python.data import Dataset
+from tensorflow.python.data import Dataset, TextLineDataset
 from tensorflow.python.keras import Input, Model, activations
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.engine import Layer
@@ -89,14 +89,25 @@ def get_encoder(filename="nowiki-SubwordTextEncoder"):
     return enc
 
 
-def get_dataset(texts):
-    if isinstance(texts, Sized):
+def get_dataset(texts, bptt=64):
+    if isinstance(texts, str):
+        ds = TextLineDataset(texts)
+    elif isinstance(texts, Sized):
         ds = Dataset.from_tensor_slices(texts)
     else:
         assert isinstance(texts, Iterable)
         ds = Dataset.from_generator(lambda: (encoder.encode(s) for s in texts), output_types=(tf.int64,))
 
-    ds = ds.map(lambda x: (x[:-1], x[1:]))
+    def encode(text_tensor):
+        encoded_text = encoder.encode(text_tensor)
+        return np.array(encoded_text[0:bptt], dtype=np.int64), np.reshape(np.array(encoded_text[1:bptt + 1], dtype=np.int64), (-1, 1))
+
+    def encode_map_fn(text):
+        return tf.numpy_function(encode, inp=[text], Tout=(tf.int64, tf.int64))
+
+    ds = ds.map(encode_map_fn)
+
+    ds = ds.filter(lambda x, y: tf.numpy_function(lambda a, b: b.shape[-2] == bptt, inp=[x, y], Tout=tf.bool))
     return ds
 
 
@@ -104,23 +115,32 @@ if __name__ == '__main__':
     encoder = get_encoder()
     model = build_language_model(encoder.vocab_size, use_gpu=False, tie_weights=False)
     model.summary()
-    # dataset = get_dataset((s for s in open("res/wiki/nowiki.txt") if len(s) > 64))
+    dataset = get_dataset("res/wiki/nowiki-train.txt")
+    dataset = dataset.shuffle(1024)
+    dataset = dataset.batch(32)
+    dataset = dataset.prefetch(64)
 
-    model.compile(adam(3e-4), lambda x, y: sparse_categorical_crossentropy(x, y, from_logits=False),
+    # for i in dataset:
+    #     # print(i[0].numpy().shape, i[1].numpy().shape)
+    #     print(encoder.decode(i[0].numpy()[0]), encoder.decode(i[1].numpy()[0][-1]))
+
+    model.compile(adam(3e-4), sparse_categorical_crossentropy,
                   [categorical_accuracy])
-    it = (encoder.encode(s) for s in open("res/wiki/nowiki.txt").read(100000).split("\n") if len(s) > 64)
-    it = list(i for i in it if len(i) > 66)
 
-    # for i in it:
-    #     print(i)
-    #     print(encoder.decode(i[0:64]))
-    #     print(encoder.decode(i[1:65]))
-
-    x = np.array([i[0:64] for i in it])
-    y = np.array([i[1:65] for i in it])
-
-    y = y.reshape((y.shape + (1,)))
-
-    print(x.shape, y.shape)
-
-    model.fit(x=x, y=y, batch_size=32, epochs=128)
+    model.fit(dataset, steps_per_epoch=1024)
+    # it = (encoder.encode(s) for s in open("res/wiki/nowiki.txt").read(100000).split("\n") if len(s) > 64)
+    # it = list(i for i in it if len(i) > 66)
+    #
+    # # for i in it:
+    # #     print(i)
+    # #     print(encoder.decode(i[0:64]))
+    # #     print(encoder.decode(i[1:65]))
+    #
+    # x = np.array([i[0:64] for i in it])
+    # y = np.array([i[1:65] for i in it])
+    #
+    # y = y.reshape((y.shape + (1,)))
+    #
+    # print(x.shape, y.shape)
+    #
+    # model.fit(x=x, y=y, batch_size=32, epochs=128)

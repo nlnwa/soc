@@ -109,7 +109,8 @@ def get_ip(connection):
     return ip
 
 
-def has_norwegian_version(url):
+def has_norwegian_version(connection):
+    url = connection.geturl()
     parsed = urlparse(url)
     base_url = parsed.netloc
     url_parts = base_url.split('.')
@@ -131,8 +132,9 @@ def has_norwegian_version(url):
                 or redir.status_code == HTTPStatus.MOVED_PERMANENTLY
                 or redir.status_code == HTTPStatus.FOUND):
 
-            ip_o = get_ip(new_url)
-            ip_n = get_ip(url)
+            new_connection = urlopen(new_url)
+            ip_o = get_ip(new_connection)
+            ip_n = get_ip(connection)
 
             i = 0
             for o, n in zip(ip_o.split("."), ip_n.split(".")):
@@ -141,7 +143,7 @@ def has_norwegian_version(url):
                 else:
                     break
             if i > 0:
-                return i, new_url  # TODO Should maybe return connection, maybe only return connection
+                return i, new_connection
     except (requests.ConnectionError, requests.exceptions.ConnectionError,
             requests.exceptions.ChunkedEncodingError):
         pass
@@ -156,9 +158,9 @@ def iter_urls(urls):
             connection = urlopen(url)
 
             norwegian_version = has_norwegian_version(connection)
-            if norwegian_version[0] > 0:
+            if norwegian_version[1] is not None:
                 # OBS! redirect url not always better, i.e http://www.kyocera.nl vs https://netherlands.kyocera.com/
-                print("There exists a norwegian version at this page:", norwegian_version)
+                print(f"There exists a norwegian version at this page: {norwegian_version[1].geturl()} ({norwegian_version[0]})")
 
             # txt = get_text(url)
             # domain = url.split(".")[-1]

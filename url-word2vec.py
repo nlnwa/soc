@@ -4,7 +4,7 @@ from pprint import pprint
 
 import numpy
 from gensim.models import Doc2Vec
-from sklearn.cluster import OPTICS
+from sklearn.cluster import Birch
 from sklearn.manifold import TSNE
 
 # def iter_urls():
@@ -21,7 +21,6 @@ from sklearn.manifold import TSNE
 #
 #
 # print("Webpages loaded. Vectorizing...")
-#
 #
 # documents = TaggedWebpageDocument()
 # model = Doc2Vec(documents, window=8, vector_size=256)
@@ -40,22 +39,26 @@ vectors = []
 for art in model.docvecs.vectors_docs:
     vectors.append(art)
 
-n_comp = 2
+n_comp = 3
 pca = TSNE(n_components=n_comp).fit_transform(vectors)
+numpy.save("wp-tsne3.npy", pca)
+# pca = numpy.load("wp-tsne3.npy")
 
-write = open("webpage-tsne.csv", "w")
-write.write("Title,f1,f2\n")
-for art, (pca1, pca2) in zip(model.docvecs.doctags, pca):
+# read = open("webpage-tsne.csv")
+# next(read)
+write = open("webpage-tsne3-vec.csv", "w")
+write.write("Title,f1,f2,f3\n")  # + ",".join([f"v{i}" for i in range(256)]) + "\n")
+for art, (f1, f2, f3) in zip(model.docvecs.doctags, pca):
     title = re.sub("[,'\"]", "|", art)
-    write.write(f"{title},{pca1},{pca2}\n")
-
+    # it = [str(f) for f in vector]
+    write.write(",".join([art, str(f1), str(f2), str(f3)]) + "\n")
 
 print("Vectorized. Clustering...")
 
 # clust = 16
 
-cluster = OPTICS().fit_predict(vectors)
-numpy.save("optics-fitpredict.npy", cluster)
+cluster = Birch(n_clusters=20).fit_predict(vectors)
+numpy.save("birch-fitpredict.npy", cluster)
 clust = max(cluster) + 2
 
 clusters = {str(i): [] for i in cluster}

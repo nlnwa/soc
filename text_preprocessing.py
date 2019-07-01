@@ -22,7 +22,7 @@ else:
     encoder = tfds.features.text.SubwordTextEncoder.load_from_file("nowiki-SubwordTextEncoder")
 
 
-encoding = encoder.encode("t _ sne")
+encoding = encoder.encode("Instructions for updating:\nUse tf.where in 2.0, which has the same broadcast rule as np.where")
 
 for enc in encoding:
     print(enc, "|", encoder.decode([enc]))

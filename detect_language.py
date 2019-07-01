@@ -14,7 +14,7 @@ from tensorflow.python.keras.optimizers import adam
 from tensorflow.python.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.keras.preprocessing.text import Tokenizer
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '4'
 
 LATIN_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 NORWEGIAN_ALPHABET = LATIN_ALPHABET + "æøå"
@@ -60,7 +60,7 @@ def preprocess(text, window_size=256, batch_size=32):
     :param epochs: how many times to repeat the data.
     :return: a TensorFlow dataset containing the data.
     """
-    sentences = split_and_clean(text)
+    sentences = list(split_and_clean(text))
     del text
 
     x = tokenizer.texts_to_sequences(sentences)
@@ -69,7 +69,7 @@ def preprocess(text, window_size=256, batch_size=32):
 
     # data = Dataset.from_generator(lambda: x, output_types=(np.int32,))
 
-    data = Dataset.from_tensor_slices(list(x))
+    data = Dataset.from_tensor_slices(x)
 
     data = data.batch(batch_size)
 
@@ -95,7 +95,7 @@ def lstm_block(input, units, gpu, sequences=True, bi=False, drop=0.25):
     return x
 
 
-def get_model(window_size, alphabet_size, output_size, lr=1e-3, gpu=None):
+def get_model(window_size, alphabet_size, output_size, lr=None, gpu=None):
     """
     Creates a model that can be used after pre-processing data
 
@@ -124,15 +124,22 @@ def get_model(window_size, alphabet_size, output_size, lr=1e-3, gpu=None):
 
 
 if __name__ == '__main__':
-    model = get_model(256, len(alphabet) + 2, 2, None)
-
-    model.load_weights("LMX7.h5")
-
     parser = ArgumentParser()
     parser.add_argument("-f", "--file", dest="files",
                         help="write report to FILE", metavar="FILE", nargs="+")
 
+    parser.add_argument("-m", "--model", dest="model",
+                        help="path to saved model", metavar="MODEL")
+
     args = parser.parse_args()
+
+    model = get_model(256, len(alphabet) + 2, 2)
+
+    if args.model:
+        model.load_weights(args.model)
+    else:
+        model.load_weights("LMX7.h5")
+
     for f in args.files:
         txt = open(f).read()
         data, lengths = preprocess(txt)
@@ -140,9 +147,11 @@ if __name__ == '__main__':
         total = np.zeros((pred.shape[-1]))
         byte_count = 0
         for p, l in zip(pred, lengths):
-            # print(p, s)
+            # print(p, l)
             total += p * l
             byte_count += l
-        total /= byte_count
+
+        if byte_count > 0:
+            total /= byte_count
 
         print(f"NOB: {total[0]}, NNO: {total[1]}")

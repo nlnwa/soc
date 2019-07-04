@@ -36,9 +36,8 @@ pattern_postal = re.compile(postal_codes, re.IGNORECASE)
 pattern_phone = re.compile(r"([^\d]|^)((\(?(\+|00)?47\)?)( ?\d){8})([^\d]|$)")  # eg. "+47 51 99 00 00"
 pattern_norway = re.compile(f"{ensure_start}(norwegian|norsk|{norway_names}){ensure_end}", re.IGNORECASE)
 pattern_counties = re.compile(f"{ensure_start}({counties}){ensure_end}", re.IGNORECASE)
+pattern_kroner = re.compile(r"(\d+ ?(kr(oner)?|NOK)(?=([^\w]|$)))", re.IGNORECASE)
 
-
-# TODO implement kroner regex: \d+ ?(kr(oner)?|NOK)(?=([^\w]|$))
 
 def get_text(connection):
     html = connection
@@ -104,6 +103,11 @@ def has_county(txt):
     return Counter(c[1] for c in cou)
 
 
+def has_kroner(txt):
+    kr = pattern_kroner.findall(txt)
+    return Counter(k[0] for k in kr)
+
+
 def get_ip(connection):
     ip = socket.gethostbyname(urlparse(connection.geturl()).hostname)
     return ip
@@ -145,7 +149,7 @@ def has_norwegian_version(connection):
             if i > 0:
                 return i, new_connection
     except (requests.ConnectionError, requests.exceptions.ConnectionError,
-            requests.exceptions.ChunkedEncodingError):
+            requests.exceptions.ChunkedEncodingError, requests.exceptions.TooManyRedirects, socket.timeout):
         pass
     return 0, None
 
@@ -154,6 +158,7 @@ def iter_urls(urls):
     for url in urls:
         url = url.strip()
         try:
+            # url = "http://www.health.gov.il"
             print(url)
             connection = urlopen(url)
 
@@ -162,16 +167,17 @@ def iter_urls(urls):
                 # OBS! redirect url not always better, i.e http://www.kyocera.nl vs https://netherlands.kyocera.com/
                 print(f"There exists a norwegian version at this page: {norwegian_version[1].geturl()} ({norwegian_version[0]})")
 
-            # txt = get_text(url)
+            txt = get_text(connection)
             # domain = url.split(".")[-1]
 
             # bytes_found, percentage, score = has_norwegian(txt, domain)
-            # postal = has_postal(txt)
-            # phone = has_phone_number(txt)
-            # county = has_county(txt)
-            # name = has_name(txt)
-            # norway = has_norway(txt)
-            # geoloc = geo(url)
+            postal = has_postal(txt)
+            phone = has_phone_number(txt)
+            county = has_county(txt)
+            name = has_name(txt)
+            norway = has_norway(txt)
+            kroner = has_kroner(txt)
+            geoloc = geo(connection)
 
             # fw.write(
             #     f"{url},{domain},{bytes_found / 1000},{percentage},{score},{len(postal)},{sum(postal.values())},"
@@ -192,14 +198,14 @@ if __name__ == '__main__':
     files = os.listdir("res/oos_liste_03.01.19")
     random.shuffle(files)  # Hopefully distributes urls evenly
     for file in files:
-        if not re.match(r"uri_(\W|no)", file):
+        if not re.match(r"uri_(\W|no|_)", file):
             f = open(f"res/oos_liste_03.01.19/{file}")
             iter_urls(f)
 
             # it.append(f)
             # if i == 100:
             #     i = 0
-            #     t = Thread(target=iter_urls, args=(chain.from_iterable(it),))
+            #     t = Thread(target=iter_urls, args=(chain.fdatadrom_iterable(it),))
             #     t.start()
             # i += 1
             # iter_urls(f)

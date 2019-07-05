@@ -3,6 +3,7 @@ import re
 import string
 from collections import Counter
 
+import pandas as pd
 import pycld2
 
 
@@ -46,9 +47,21 @@ def analyze_clusters():
             for page in data[d]:
                 sp = re.split(r"\.", page)[-1]
                 c[sp] += 1
-            print(d, c.most_common())
+                if d == "1":
+                    print(page)
+            print(d, c.most_common(5))
+            print(sum(c.values()))
+
+
+def merge_csv():
+    c1 = pd.read_csv("webpage-tsne2-vec.csv")
+    c1 = c1.rename({"Title": "URL"}, axis=1)
+    c2 = pd.read_csv("res/uri-tables/uri_scores4.csv")
+    c3 = c2.merge(c1)
+    c3.to_csv("webpage-ultimate.csv", index=False)
 
 
 if __name__ == '__main__':
     # twitter()
     analyze_clusters()
+    # merge_csv()

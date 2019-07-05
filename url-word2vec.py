@@ -3,9 +3,9 @@ import re
 from pprint import pprint
 
 import numpy
+import pandas as pd
 from gensim.models import Doc2Vec
-from sklearn.cluster import Birch
-from sklearn.manifold import TSNE
+from sklearn.cluster import SpectralClustering
 
 # def iter_urls():
 #     for p in os.listdir("res/webpages"):
@@ -39,31 +39,35 @@ vectors = []
 for art in model.docvecs.vectors_docs:
     vectors.append(art)
 
-n_comp = 3
-pca = TSNE(n_components=n_comp).fit_transform(vectors)
-numpy.save("wp-tsne3.npy", pca)
-# pca = numpy.load("wp-tsne3.npy")
+n_comp = 2
+# pca = TSNE(n_components=n_comp, learning_rate=20, n_iter=10000).fit_transform(vectors)
+# numpy.save("wp-tsne3.npy", pca)
+pca = numpy.load("wp-tsne3.npy")
 
 # read = open("webpage-tsne.csv")
 # next(read)
-write = open("webpage-tsne3-vec.csv", "w")
-write.write("Title,f1,f2,f3\n")  # + ",".join([f"v{i}" for i in range(256)]) + "\n")
-for art, (f1, f2, f3) in zip(model.docvecs.doctags, pca):
-    title = re.sub("[,'\"]", "|", art)
-    # it = [str(f) for f in vector]
-    write.write(",".join([art, str(f1), str(f2), str(f3)]) + "\n")
+# write = open("webpage-tsne2-vec.csv", "w")
+# write.write("Title,f1,f2," + ",".join([f"v{i}" for i in range(256)]) + "\n")
+# for art, (f1, f2), vector in zip(model.docvecs.doctags, pca, vectors):
+#     title = re.sub("[,'\"]", "|", art)
+#     it = [str(f) for f in vector]
+#     write.write(",".join([art, str(f1), str(f2)] + it) + "\n")
 
 print("Vectorized. Clustering...")
 
 # clust = 16
 
-cluster = Birch(n_clusters=20).fit_predict(vectors)
-numpy.save("birch-fitpredict.npy", cluster)
+csv = pd.read_csv("webpage-ultimate.csv")
+vectors = csv.drop(["URL", "Domain", "f1", "f2", "Geoloc"], axis=1).values
+vectors = vectors.astype(numpy.float)
+
+cluster = SpectralClustering(n_clusters=2).fit_predict(vectors)
+numpy.save("kmeans-fitpredict.npy", cluster)
 clust = max(cluster) + 2
 
 clusters = {str(i): [] for i in cluster}
-for art, i in zip(model.docvecs.doctags, cluster):
-    clusters[str(i)].append(re.split(r":\n", art, maxsplit=2)[0])
+for (_, art), i in zip(csv.iterrows(), cluster):
+    clusters[str(i)].append(re.split(r":\n", art["URL"], maxsplit=2)[0])
     # print(re.split(r":\n", art, maxsplit=1)[0], i)
     # print(re.split(r":\n", art, maxsplit=1)[0], cluster.predict(vectorizer.transform([art])))
 

@@ -1,15 +1,17 @@
+import random
 from collections import Sized, Iterable
 
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets.public_api as tfds
+from keras_contrib.callbacks import CyclicLR
 from tensorflow.python.data import Dataset, TextLineDataset
 from tensorflow.python.keras import Input, Model, activations
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.engine import Layer
 from tensorflow.python.keras.layers import Embedding, Dropout, TimeDistributed, Dense, CuDNNLSTM, LSTM
 from tensorflow.python.keras.losses import sparse_categorical_crossentropy
-from tensorflow.python.keras.metrics import categorical_accuracy
+from tensorflow.python.keras.metrics import sparse_categorical_accuracy
 from tensorflow.python.keras.optimizers import adam
 
 
@@ -84,8 +86,8 @@ def build_language_model(num_words, embedding_size=400, rnn_sizes=(1150, 1150),
     return mdl
 
 
-def get_encoder(filename="nowiki-SubwordTextEncoder"):
-    enc = tfds.features.text.SubwordTextEncoder.load_from_file(filename)
+def get_encoder(filename="nonnwiki-TokenTextEncoder"):
+    enc = tfds.features.text.TokenTextEncoder.load_from_file(filename)
     return enc
 
 
@@ -100,10 +102,13 @@ def get_dataset(texts, bptt=64):
 
     def encode(text_tensor):
         encoded_text = encoder.encode(text_tensor)
-        return np.array(encoded_text[0:bptt], dtype=np.int64), np.reshape(np.array(encoded_text[1:bptt + 1], dtype=np.int64), (-1, 1))
+        return np.array(encoded_text[0:bptt], dtype=np.int64), np.reshape(
+            np.array(encoded_text[1:bptt + 1], dtype=np.int64), (-1, 1))
 
     def encode_map_fn(text):
         return tf.numpy_function(encode, inp=[text], Tout=(tf.int64, tf.int64))
+
+    ds = ds.filter(lambda x: tf.numpy_function(lambda a: len(a) > 2 * bptt, inp=[x], Tout=tf.bool))
 
     ds = ds.map(encode_map_fn)
 
@@ -111,36 +116,40 @@ def get_dataset(texts, bptt=64):
     return ds
 
 
+def preprocess(fpath, bptt=80):
+    f = open(fpath).read().split("(^|\n)\n[^\n]+\n")
+    xy = []
+    for s in f:
+        e = encoder.encode(s)
+        for i in range(bptt, len(e), bptt):
+            xy.append((e[i - bptt:i], e[i - bptt + 1:i + 1]))
+    del f
+    random.shuffle(xy)
+    x, y = zip(*xy)
+    del xy
+    x = np.array(x)
+    y = np.array(y)
+    y = y.reshape((-1, bptt, 1))
+    return x, y
+
+
 if __name__ == '__main__':
     encoder = get_encoder()
-    model = build_language_model(encoder.vocab_size, use_gpu=False, tie_weights=False)
+
+    x, y = preprocess("res/wiki/nowiki.txt")
+
+    # import keras.backend as K
+
+    # dtype='float16'
+    # K.set_floatx(dtype)
+
+    # # default is 1e-7 which is too small for float16.  Without adjusting the epsilon, we will get NaN predictions because of divide by zero problems
+    # K.set_epsilon(1e-4)
+
+    model = build_language_model(encoder.vocab_size + (8 - encoder.vocab_size % 8), use_gpu=False, tie_weights=False)
     model.summary()
-    dataset = get_dataset("res/wiki/nowiki-train.txt")
-    dataset = dataset.shuffle(1024)
-    dataset = dataset.batch(32)
-    dataset = dataset.prefetch(64)
 
-    # for i in dataset:
-    #     # print(i[0].numpy().shape, i[1].numpy().shape)
-    #     print(encoder.decode(i[0].numpy()[0]), encoder.decode(i[1].numpy()[0][-1]))
+    model.compile(adam(2e-3 / 25.), sparse_categorical_crossentropy, [sparse_categorical_accuracy])
 
-    model.compile(adam(3e-4), sparse_categorical_crossentropy,
-                  [categorical_accuracy])
-
-    model.fit(dataset, steps_per_epoch=1024)
-    # it = (encoder.encode(s) for s in open("res/wiki/nowiki.txt").read(100000).split("\n") if len(s) > 64)
-    # it = list(i for i in it if len(i) > 66)
-    #
-    # # for i in it:
-    # #     print(i)
-    # #     print(encoder.decode(i[0:64]))
-    # #     print(encoder.decode(i[1:65]))
-    #
-    # x = np.array([i[0:64] for i in it])
-    # y = np.array([i[1:65] for i in it])
-    #
-    # y = y.reshape((y.shape + (1,)))
-    #
-    # print(x.shape, y.shape)
-    #
-    # model.fit(x=x, y=y, batch_size=32, epochs=128)
+    lrcb = CyclicLR(max_lr=2e-3, base_lr=2e-3 / 25., step_size=8900 * 8)
+    model.fit(x, y, batch_size=128, epochs=128, callbacks=[lrcb])

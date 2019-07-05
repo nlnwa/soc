@@ -3,18 +3,21 @@ import os
 import random
 import re
 import socket
-from collections import Counter
+from collections import Counter, namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.client import IncompleteRead
 from ssl import CertificateError
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
+import pandas as pd
 import pycld2
 import requests
 from bs4 import BeautifulSoup
 from geoip2.database import Reader
+from math import tanh, atanh
 
 reader = Reader('res/GeoIP2-Country.mmdb')
 
@@ -44,14 +47,6 @@ def get_text(connection):
     # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
     soup = BeautifulSoup(html, "html.parser")
 
-    # for link in soup.findAll("a", href=True):
-    #     # print(link.text)
-    #     if ".no" in link["href"]:
-    #         print("Nor:", link["href"])
-    #     # if pattern_norway.search(link.text):
-    #     #     print("Nor:", link["href"])
-    #     # print(link["href"])
-
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
     return soup.getText()
@@ -68,11 +63,13 @@ def has_norwegian(txt, domain):
     try:
         is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
         if is_reliable:
+            p, s, n = 0, 0, 0
             for lang, code, percent, score in details:
                 if code in ["no", "nn"]:
-                    return bytes_found, percent, score
-                    # nor_score = bytes_found * percent * score
-                    # return nor_score
+                    p += percent
+                    s += score
+                    n += 1
+            return bytes_found, p, s / (n or 1)
         return bytes_found, 0, 0
     except pycld2.error:
         return 0, 0, 0
@@ -111,6 +108,13 @@ def has_kroner(txt):
 def get_ip(connection):
     ip = socket.gethostbyname(urlparse(connection.geturl()).hostname)
     return ip
+
+
+def get_domain(url):
+    parsed = urlparse(url)
+    base_url = parsed.netloc
+    url_parts = base_url.split('.')
+    return url_parts[-1]
 
 
 def has_norwegian_version(connection):
@@ -154,58 +158,116 @@ def has_norwegian_version(connection):
     return 0, None
 
 
-def iter_urls(urls):
-    for url in urls:
-        url = url.strip()
-        try:
-            # url = "http://www.health.gov.il"
-            print(url)
-            connection = urlopen(url)
+WebPageValues = namedtuple("WebPageValues",
+                           ["o_url", "r_url", "geo", "no_ver", "dom", "bytes", "percentage", "score", "nor_score",
+                            "postal_u", "postal_t", "phone_u", "phone_t", "county_u", "county_t", "names_u",
+                            "names_t", "norway_u", "norway_t", "raw_html"])
 
-            norwegian_version = has_norwegian_version(connection)
-            if norwegian_version[1] is not None:
-                # OBS! redirect url not always better, i.e http://www.kyocera.nl vs https://netherlands.kyocera.com/
-                print(f"There exists a norwegian version at this page: {norwegian_version[1].geturl()} ({norwegian_version[0]})")
 
-            txt = get_text(connection)
-            # domain = url.split(".")[-1]
+def normalize(x, midpoint):
+    # Normalizes such that
+    # x == 0 -> 0,
+    # x == midpoint -> 0.5,
+    # x == ∞ -> 1
+    return tanh(x * atanh(0.5) / midpoint)
 
-            # bytes_found, percentage, score = has_norwegian(txt, domain)
-            postal = has_postal(txt)
-            phone = has_phone_number(txt)
-            county = has_county(txt)
-            name = has_name(txt)
-            norway = has_norway(txt)
-            kroner = has_kroner(txt)
-            geoloc = geo(connection)
 
-            # fw.write(
-            #     f"{url},{domain},{bytes_found / 1000},{percentage},{score},{len(postal)},{sum(postal.values())},"
-            #     f"{len(phone)},{sum(phone.values())},{len(county)},{sum(county.values())},{len(name)},"
-            #     f"{sum(name.values())},{len(norway)},{sum(norway.values())},{geoloc}\n")
+class WebPage:
+    def __init__(self, orig_url, redirect_url, raw_html, geo_loc, norwegian_version=None):
+        self.orig_url = orig_url
+        self.redirect_url = redirect_url
+        self.raw_html = raw_html
+        self.geo_loc = geo_loc
+        self.norwegian_version = norwegian_version
 
-        except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout):
-            pass
+    @staticmethod
+    def from_url(url):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/70.0.3538.77 Safari/537.36"}
+        req = Request(url=url, headers=headers)
+        conn = urlopen(req, timeout=30)
+        html = str(conn.read(), "utf-8")
+        geoloc = geo(conn)
+        redir = conn.geturl()
+
+        no_ver = has_norwegian_version(conn)
+        if no_ver[1] is not None:
+            no_ver = no_ver[1].geturl()
+        else:
+            no_ver = None
+
+        del conn  # Disconnect
+        return WebPage(orig_url=url, redirect_url=redir, raw_html=html, geo_loc=geoloc, norwegian_version=no_ver)
+
+    def get_text(self):
+        return get_text(self.raw_html)
+
+    def get_ip(self):
+        return get_ip(self.redirect_url)
+
+    def is_norwegian(self):
+        pass  # TODO ruleset for classification
+
+    def values(self):
+        # dom = get_domain(self.orig_url)
+
+        dom = get_domain(self.redirect_url)
+
+        txt = self.get_text()
+
+        b, p, s = has_norwegian(txt, domain=dom)
+
+        nor_score = normalize(b * p * s, 1e7)  # 200*100*500 gives 50%
+
+        postal = has_postal(txt)
+        phone = has_phone_number(txt)
+        county = has_county(txt)
+        name = has_name(txt)
+        norway = has_norway(txt)
+
+        txt = re.sub(r"[\s,\"'’`©]+", " ", self.get_text())  # Remove csv-troublesome characters
+
+        return WebPageValues(self.orig_url, self.redirect_url, self.geo_loc, self.norwegian_version, dom, b, p, s,
+                             nor_score, len(postal), sum(postal.values()), len(phone), sum(phone.values()), len(county),
+                             sum(county.values()), len(name), sum(name.values()), len(norway), sum(norway.values()),
+                             txt)
+
+
+def iter_urls(url):
+    try:
+        # print(url)
+
+        wp = WebPage.from_url(url)
+
+        for k, v in wp.values()._asdict().items():
+            d[k].append(v)
+
+    except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout) as e:
+        print(url, e)
+        pass
 
 
 if __name__ == '__main__':
+    print(pd.DataFrame.from_csv("uri_scores.csv"))
 
-    # fw = open("uri_scores3.csv", "w")
-    # fw.write(
-    #     "URL,Domain,KBytes,Percentage,Score,Postal_t,Postal_u,Phone_t,Phone_u,County_t,County_u,Name_t,Name_u,Norway_t,Norway_u,Geoloc\n")
-    i = 0
-    it = []
+    d = {k: [] for k in WebPageValues._fields}
     files = os.listdir("res/oos_liste_03.01.19")
-    random.shuffle(files)  # Hopefully distributes urls evenly
-    for file in files:
-        if not re.match(r"uri_(\W|no|_)", file):
-            f = open(f"res/oos_liste_03.01.19/{file}")
-            iter_urls(f)
 
-            # it.append(f)
-            # if i == 100:
-            #     i = 0
-            #     t = Thread(target=iter_urls, args=(chain.fdatadrom_iterable(it),))
-            #     t.start()
-            # i += 1
-            # iter_urls(f)
+    urls = []
+
+    for file in files:
+        if not re.match(r"uri_(\W|_)", file):
+            f = open(f"res/oos_liste_03.01.19/{file}")
+
+            urls += [url.strip() for url in f]
+
+    random.shuffle(urls)
+
+    print(len(urls))
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        future = pool.map(iter_urls, urls)
+
+    df = pd.DataFrame.from_dict(d)
+    df.to_csv("uri_scores.csv", index=False)

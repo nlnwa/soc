@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.client import IncompleteRead
 from ssl import CertificateError
+from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen, Request
@@ -63,13 +64,12 @@ def has_norwegian(txt, domain):
     try:
         is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
         if is_reliable:
-            p, s, n = 0, 0, 0
+            p, s = 0, 0
             for lang, code, percent, score in details:
                 if code in ["no", "nn"]:
                     p += percent
-                    s += score
-                    n += 1
-            return bytes_found, p, s / (n or 1)
+                    s += score * percent
+            return bytes_found, p, s / (p or 1)
         return bytes_found, 0, 0
     except pycld2.error:
         return 0, 0, 0
@@ -125,6 +125,9 @@ def has_norwegian_version(connection):
 
     if url_parts[-1] == "no":
         return -1, None
+
+    if url_parts[-2] in {"com", "co"}:
+        del url_parts[-1]
 
     url_parts[-1] = "no"
 
@@ -187,7 +190,7 @@ class WebPage:
                           "Chrome/70.0.3538.77 Safari/537.36"}
         req = Request(url=url, headers=headers)
         conn = urlopen(req, timeout=30)
-        html = str(conn.read(), "utf-8", errors='replace')
+        html = str(conn.read(), "utf-8", errors="replace")
         geoloc = geo(conn)
         redir = conn.geturl()
 
@@ -282,12 +285,23 @@ def iter_urls(url):
             print("Not norsk:", url, "\n")
 
     except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout) as e:
-        # print(url, e)
+        print(url, e)
         pass
 
 
 if __name__ == '__main__':
-    # print(pd.DataFrame.from_csv("uri_scores.csv"))
+    # df = pd.DataFrame.from_csv("uri_scores.csv", index_col=None)
+    #
+    # print(df.iloc[25545])
+    #
+    # df = df[df.r_url != df.iloc[25545].r_url]
+    #
+    # # print(df.iloc[25545])
+    # df = df.drop(["raw_html"], axis=1)
+    #
+    # df.to_csv("uri_scores_notxt.csv", index=False)
+    #
+    # exit(0)
 
     d = {k: [] for k in WebPageValues._fields}
     files = os.listdir("res/oos_liste_03.01.19")
@@ -306,8 +320,16 @@ if __name__ == '__main__':
     for url in urls:
         iter_urls(url)
 
-    # with ThreadPoolExecutor(max_workers=16) as pool:
-    #     future = pool.map(iter_urls, urls[:100])
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        pool.map(iter_urls, urls, timeout=120)
+        print("Sleeping")
+        sleep(65000)
+        print("Slept")
+        df = pd.DataFrame.from_dict(d)
+        df.to_csv("uri_scores.csv", index=False)
+        print("CSV saved")
+        pool.shutdown(False)
 
-    # df = pd.DataFrame.from_dict(d)
-    # df.to_csv("uri_scores.csv", index=False)
+    # in case it actually finishes
+    df = pd.DataFrame.from_dict(d)
+    df.to_csv("uri_scores.csv", index=False)

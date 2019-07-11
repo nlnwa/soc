@@ -5,6 +5,8 @@ from itertools import chain
 
 import tensorflow_datasets.public_api as tfds
 
+# Creates text encoder
+
 if not os.path.isfile("nonnwiki-TokenTextEncoderL.tokens"):
     print("Loading wikis...")
 
@@ -15,7 +17,7 @@ if not os.path.isfile("nonnwiki-TokenTextEncoderL.tokens"):
 
     it = (w for text in it for w in re.split(r"\W+", text))
 
-    counter = Counter(it).most_common(2**15)
+    counter = Counter(it).most_common(2 ** 15)
 
     print("Building encoder...")
 
@@ -26,7 +28,6 @@ if not os.path.isfile("nonnwiki-TokenTextEncoderL.tokens"):
     encoder.save_to_file("nonnwiki-TokenTextEncoderL")
 else:
     encoder = tfds.features.text.TokenTextEncoder.load_from_file("nonnwiki-TokenTextEncoderL")
-
 
 encoding = encoder.encode("En norsk tekst for å teste.")
 

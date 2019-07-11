@@ -2,7 +2,10 @@ import csv
 import json
 
 
+# Generates regular expressions for various typically Norwegian text features.
+
 def get_names(file, delimiter=";"):
+    # Fetches names from file
     source = open(file)
     rdr = csv.reader(source, delimiter=delimiter)
     names = []

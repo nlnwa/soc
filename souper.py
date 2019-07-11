@@ -161,7 +161,7 @@ def has_norwegian_version(connection):
 WebPageValues = namedtuple("WebPageValues",
                            ["o_url", "r_url", "geo", "no_ver", "dom", "bytes", "percentage", "score", "nor_score",
                             "postal_u", "postal_t", "phone_u", "phone_t", "county_u", "county_t", "names_u",
-                            "names_t", "norway_u", "norway_t", "raw_html"])
+                            "names_t", "norway_u", "norway_t", "kroner_u", "kroner_t", "raw_html"])
 
 
 def normalize(x, midpoint):
@@ -187,7 +187,7 @@ class WebPage:
                           "Chrome/70.0.3538.77 Safari/537.36"}
         req = Request(url=url, headers=headers)
         conn = urlopen(req, timeout=30)
-        html = str(conn.read(), "utf-8")
+        html = str(conn.read(), "utf-8", errors='replace')
         geoloc = geo(conn)
         redir = conn.geturl()
 
@@ -207,7 +207,31 @@ class WebPage:
         return get_ip(self.redirect_url)
 
     def is_norwegian(self):
-        pass  # TODO ruleset for classification
+        norwegian = self.values().nor_score * 1.6
+        postal = self.values().postal_u * 2
+        phone = self.values().phone_u * 0.3
+        county = self.values().county_t * 0.6
+        names = self.values().names_u * 0.2
+        norway = self.values().norway_t * 0.15
+        kroner = self.values().kroner_u * 0.05
+        geo_score = 0
+        if self.geo_loc and self.geo_loc == "NO":
+            geo_score = 1.0
+        score = norwegian + postal + phone + county + names + norway + kroner + geo_score
+        print("Total score:", score)
+        score = normalize(score, 1.4)
+        print("Normalized score:", score)
+
+        print("Norwegian score:", norwegian, " (", self.values().nor_score, ")")
+        print("Postal score:", postal)
+        print("Phone score:", phone)
+        print("County score:", county)
+        print("Name score:", names)
+        print("Norway score:", norway)
+        print("Kroner score:", kroner)
+        print("Geo ip:", geo_score)
+
+        return score
 
     def values(self):
         # dom = get_domain(self.orig_url)
@@ -225,13 +249,14 @@ class WebPage:
         county = has_county(txt)
         name = has_name(txt)
         norway = has_norway(txt)
+        kroner = has_kroner(txt)
 
         txt = re.sub(r"[\s,\"'’`©]+", " ", self.get_text())  # Remove csv-troublesome characters
 
         return WebPageValues(self.orig_url, self.redirect_url, self.geo_loc, self.norwegian_version, dom, b, p, s,
                              nor_score, len(postal), sum(postal.values()), len(phone), sum(phone.values()), len(county),
                              sum(county.values()), len(name), sum(name.values()), len(norway), sum(norway.values()),
-                             txt)
+                             len(kroner), sum(kroner.values()), txt)
 
 
 def iter_urls(url):
@@ -243,13 +268,26 @@ def iter_urls(url):
         for k, v in wp.values()._asdict().items():
             d[k].append(v)
 
+        score = wp.is_norwegian()
+
+        print("Probability Norvegica:", score)
+
+        if score > 0.70:
+            print("It's på norsk", url, "\n")
+
+        elif score > 0.5:
+            print("Possibly norwegian, do manual check", url, "\n")
+
+        else:
+            print("Not norsk:", url, "\n")
+
     except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout) as e:
-        print(url, e)
+        # print(url, e)
         pass
 
 
 if __name__ == '__main__':
-    print(pd.DataFrame.from_csv("uri_scores.csv"))
+    # print(pd.DataFrame.from_csv("uri_scores.csv"))
 
     d = {k: [] for k in WebPageValues._fields}
     files = os.listdir("res/oos_liste_03.01.19")
@@ -265,9 +303,11 @@ if __name__ == '__main__':
     random.shuffle(urls)
 
     print(len(urls))
+    for url in urls:
+        iter_urls(url)
 
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        future = pool.map(iter_urls, urls)
+    # with ThreadPoolExecutor(max_workers=16) as pool:
+    #     future = pool.map(iter_urls, urls[:100])
 
-    df = pd.DataFrame.from_dict(d)
-    df.to_csv("uri_scores.csv", index=False)
+    # df = pd.DataFrame.from_dict(d)
+    # df.to_csv("uri_scores.csv", index=False)

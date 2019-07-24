@@ -12,7 +12,6 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen, Request
-import time
 
 import pandas as pd
 import pycld2
@@ -51,7 +50,9 @@ def get_text(connection):
 
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
-    return soup.getText()
+    txt = soup.getText(separator=" ").strip()
+    txt = re.sub(r"\s+", " ", txt)
+    return txt
 
 
 def geo(connection):
@@ -61,9 +62,15 @@ def geo(connection):
     return response.country.iso_code
 
 
-def has_norwegian(txt, domain):
+def has_norwegian(domain, html=None, txt=None):
     try:
-        is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
+        if html:
+            is_reliable, bytes_found, details = pycld2.detect(html, isPlainText=False, hintTopLevelDomain=domain)
+        elif txt:
+            is_reliable, bytes_found, details = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
+        else:
+            raise ValueError("Please supply either html or text")
+
         if is_reliable:
             p, s = 0, 0
             for lang, code, percent, score in details:
@@ -165,8 +172,8 @@ def has_norwegian_version(connection):
 
 WebPageValues = namedtuple("WebPageValues",
                            ["o_url", "r_url", "geo", "no_ver", "dom", "bytes", "percentage", "score", "no_score",
-                            "nor_score", "postal_u", "postal_t", "phone_u", "phone_t", "county_u", "county_t", "names_u"
-                            , "names_t", "norway_u", "norway_t", "kroner_u", "kroner_t", "raw_html"])
+                            "nor_score", "postal_u", "postal_t", "phone_u", "phone_t", "county_u", "county_t",
+                            "names_u", "names_t", "norway_u", "norway_t", "kroner_u", "kroner_t", "text"])
 
 
 def normalize(x, midpoint):
@@ -228,17 +235,18 @@ class WebPage:
         if geo_loc and geo_loc == "NO":
             geo_score = 1.0
         score = norwegian + postal + phone + county + names + norway + kroner + geo_score
-        print("Total score:", score)
+        # print("Total score:", score)
         score = normalize(score, 1.4)
 
-        print("Norwegian score:", norwegian, " (", nor_score, ")")
-        print("Postal score:", postal)
-        print("Phone score:", phone)
-        print("County score:", county)
-        print("Name score:", names)
-        print("Norway score:", norway)
-        print("Kroner score:", kroner)
-        print("Geo ip:", geo_score)
+        # print("Norwegian score:", norwegian, " (", nor_score, ")")
+        # print("Postal score:", postal)
+        # print("Phone score:", phone)
+        # print("County score:", county)
+        # print("Name score:", names)
+        # print("Norway score:", norway)
+        # print("Kroner score:", kroner)
+        # print("Geo ip:", geo_score)
+
         return score
 
     def values(self):
@@ -248,7 +256,11 @@ class WebPage:
 
         txt = self.get_text()
 
-        b, p, s = has_norwegian(txt, domain=dom)
+        b, p, s = has_norwegian(domain=dom, html=self.raw_html)
+        if b < len(txt):
+            # Sometimes the cld2 html parser gives different results than BeautifulSoup
+            # The cld2 html parser is preferred due to more in-depth analysis of the html
+            b, p, s = has_norwegian(domain=dom, txt=txt)
 
         nor_score = normalize(b * p * s, 1e7)  # 200*100*500 gives 50%
 
@@ -296,18 +308,18 @@ def iter_urls(url):
         for k, v in val._asdict().items():
             d[k].append(v)
 
-        score = val.no_score
+        # score = val.no_score
 
-        print("Probability Norvegica / Normalized score:", score)
-
-        if score > 0.70:
-            print("It's på norsk", url, "\n")
-
-        elif score > 0.5:
-            print("Possibly norwegian, do manual check", url, "\n")
-
-        else:
-            print("Not norsk:", url, "\n")
+        # print("Probability Norvegica / Normalized score:", score)
+        #
+        # if score > 0.70:
+        #     print("It's på norsk", url, "\n")
+        #
+        # elif score > 0.5:
+        #     print("Possibly norwegian, do manual check", url, "\n")
+        #
+        # else:
+        #     print("Not norsk:", url, "\n")
 
     except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout,
             socket.gaierror) as e:
@@ -316,78 +328,75 @@ def iter_urls(url):
 
 
 if __name__ == '__main__':
-    df = pd.DataFrame.from_csv("uri_scores_full.csv", index_col=None)
+    # df = pd.DataFrame.from_csv("uri_scores_full.csv", index_col=None)
 
     urls = []
 
     d = {k: [] for k in WebPageValues._fields}
 
-    for i, row in df.iterrows():
-        # print(row[["o_url", "r_url"]].values)
-        final_score = row["no_score"]
-        original_url = row["o_url"]
-        # if 0.6 > final_score > 0.4:
-        #     # print(url, final_score)
-        urls += original_url.split()
+    # for i, row in df.iterrows():
+    #     # print(row[["o_url", "r_url"]].values)
+    #     final_score = row["no_score"]
+    #     original_url = row["o_url"]
+    #     # if 0.6 > final_score > 0.4:
+    #     #     # print(url, final_score)
+    #     urls += original_url.split()
+
+    # urls = [json.loads(s)["requestedUri"] for i, s in enumerate(open("res/extracted_texts/veidemann/texts.ldjson"))]
+
+    # urls = [u for u in urls if re.match(r"^https://www\.[^/]+\.no/?$", u)]
+
+
+    # print(len(urls))
+    # num_iterations = 100
+    # total_time = 0.0
+    # for original_url in urls[:num_iterations]:
+    #     start = time.time()
+    #     iter_urls(original_url)
+    #     stop = time.time()
+    #     duration = stop - start
+    #     print("Time spent:", duration, "\n")
+    #     total_time += duration
+    #
+    # # start = time.time()
+    # # iter_urls("http://www.hiab.at")
+    # # stop = time.time()
+    # # duration = stop - start
+    # # print("Time spent:", duration, "\n")
+    # print("Total time:", total_time)
+    # print("Average time:", total_time/num_iterations)
+    #
+    # df = pd.DataFrame.from_dict(d)
+    # df.to_csv("uri_scores.csv", index=False)
+    # exit(0)
+    # iter_urls("http://www.eflorist.co.uk")
+
+    # d = {k: [] for k in WebPageValues._fields}
+    files = os.listdir("res/oos_liste_03.01.19")
+
+    for file in files:
+        if not re.match(r"uri_(\W|_)", file):
+            f = open(f"res/oos_liste_03.01.19/{file}")
+            urls += [url.strip() for url in f]
 
     random.shuffle(urls)
 
     print(len(urls))
-    num_iterations = 100
-    total_time = 0.0
-    for original_url in urls[:num_iterations]:
-        start = time.time()
-        iter_urls(original_url)
-        stop = time.time()
-        duration = stop - start
-        print("Time spent:", duration, "\n")
-        total_time += duration
 
-    # start = time.time()
-    # iter_urls("http://www.hiab.at")
-    # stop = time.time()
-    # duration = stop - start
-    # print("Time spent:", duration, "\n")
-    print("Total time:", total_time)
-    print("Average time:", total_time/num_iterations)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        pool.map(iter_urls, urls, timeout=120)
+        while not pool._work_queue.empty():
+            print("Sleeping")
+            sleep(1000)
+            print("Slept")
+            try:
+                df = pd.DataFrame.from_dict(d)
+                df.to_csv("uri_scores.csv", index=False)
+                print("CSV saved")
+            except ValueError as e:
+                print(e)
+        pool.shutdown(False)
 
+    # in case it actually finishes
     df = pd.DataFrame.from_dict(d)
     df.to_csv("uri_scores.csv", index=False)
-    exit(0)
-    # iter_urls("http://www.eflorist.co.uk")
-
-    # d = {k: [] for k in WebPageValues._fields}
-    # files = os.listdir("res/oos_liste_03.01.19")
-
-    # urls = []
-
-    # for file in files:
-    #     if not re.match(r"uri_(\W|_)", file):
-    #         f = open(f"res/oos_liste_03.01.19/{file}")
-    #
-    #         urls += [url.strip() for url in f]
-    #
-    # random.shuffle(urls)
-
-    # print(len(urls))
-    # for url in urls[:100]:
-    #     iter_urls(url)
-
-    # start = time.time()
-    # with ThreadPoolExecutor(max_workers=16) as pool:
-    #     pool.map(iter_urls, urls, timeout=120)
-    #     print("Sleeping")
-    #     sleep(54000)
-    #     print("Slept")
-    #     df = pd.DataFrame.from_dict(d)
-    #     df.to_csv("uri_scores.csv", index=False)
-    #     print("CSV saved")
-    #     pool.shutdown(False)
-
-    # stop = time.time()
-    # duration = stop - start
-    # print("Time spent:", duration, "\n")
-    #
-    # # in case it actually finishes
-    # df = pd.DataFrame.from_dict(d)
-    # df.to_csv("uri_scores.csv", index=False)

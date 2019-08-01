@@ -2,24 +2,21 @@ from urllib.error import URLError
 
 from aiohttp import web
 from aiohttp.web_request import Request
-from pycld2 import detect
 
-from souper import WebPage
+from souper import WebPage, detect_language
 
 routes = web.RouteTableDef()
 
 
 @routes.post("/language")
-async def handle_ld(request: Request):
+async def handle_language_detection(request: Request):
     data = await request.post()
-    if "text" not in data:
-        return web.HTTPUnprocessableEntity(reason="'text' field not present in request.")
 
-    txt = data["text"]
-    is_reliable, text_bytes_found, details = detect(txt)
+    domain = data["domain"] if "domain" in data else None
+    html = data["html"] if "html" in data else None
+    text = data["text"] if "text" in data else None
 
-    details = [{"languageName": lm, "languageCode": lc, "percent": p, "score": s} for lm, lc, p, s in details]
-    resp = {"isReliable": is_reliable, "textBytesFound": text_bytes_found, "details": details}
+    resp = detect_language(html=html, txt=text, domain=domain)
 
     return web.json_response(data=resp)
 
@@ -33,7 +30,7 @@ async def handle_url_check(request: Request):
     url = data["url"]
     try:
         wp = WebPage.from_url(url)
-        resp = wp.values()._asdict()
+        resp = wp.values()
 
         return web.json_response(data=resp)
     except ValueError:

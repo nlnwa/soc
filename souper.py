@@ -12,6 +12,7 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen, Request
+import time
 
 import pandas as pd
 import pycld2
@@ -224,28 +225,30 @@ class WebPage:
         #     print(".no domain")
         #     return 1.0
         # else:
-        norwegian = nor_score * 1.6
+        norwegian = nor_score * 2.8
         postal = postal_u * 2
         phone = phone_u * 0.3
-        county = county_t * 0.7
+        county = county_t * 0.75
         names = names_u * 0.2
         norway = norway_t * 0.15
-        kroner = kroner_u * 0.05
+        kroner = 0
+        if not (dom == "se" or dom == "dk" or dom == "is" or dom == "cz" or dom == "sk"):
+            kroner = kroner_u * 0.05
         geo_score = 0
         if geo_loc and geo_loc == "NO":
-            geo_score = 1.0
+            geo_score = 1.1
         score = norwegian + postal + phone + county + names + norway + kroner + geo_score
-        # print("Total score:", score)
+        print("Total score:", score)
         score = normalize(score, 1.4)
 
-        # print("Norwegian score:", norwegian, " (", nor_score, ")")
-        # print("Postal score:", postal)
-        # print("Phone score:", phone)
-        # print("County score:", county)
-        # print("Name score:", names)
-        # print("Norway score:", norway)
-        # print("Kroner score:", kroner)
-        # print("Geo ip:", geo_score)
+        print("Norwegian score:", norwegian, " (", nor_score, ")")
+        print("Postal score:", postal)
+        print("Phone score:", phone)
+        print("County score:", county)
+        print("Name score:", names)
+        print("Norway score:", norway)
+        print("Kroner score:", kroner)
+        print("Geo ip:", geo_score)
 
         return score
 
@@ -304,22 +307,23 @@ def iter_urls(url):
         wp = WebPage.from_url(url)
 
         val = wp.values()
-
+        # prints all values in json format
+        # print(json.dumps(val._asdict(), indent=4))
         for k, v in val._asdict().items():
             d[k].append(v)
 
-        # score = val.no_score
+        score = val.no_score
 
-        # print("Probability Norvegica / Normalized score:", score)
-        #
-        # if score > 0.70:
-        #     print("It's på norsk", url, "\n")
-        #
-        # elif score > 0.5:
-        #     print("Possibly norwegian, do manual check", url, "\n")
-        #
-        # else:
-        #     print("Not norsk:", url, "\n")
+        print("Probability Norvegica / Normalized score:", score)
+
+        if score > 0.70:
+            print("It's på norsk", url, "\n")
+
+        elif score > 0.5:
+            print("Possibly norwegian, do manual check", url, "\n")
+
+        else:
+            print("Not norsk:", url, "\n")
 
     except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout,
             socket.gaierror) as e:
@@ -328,75 +332,74 @@ def iter_urls(url):
 
 
 if __name__ == '__main__':
-    # df = pd.DataFrame.from_csv("uri_scores_full.csv", index_col=None)
+    df = pd.DataFrame.from_csv("uri_scores_full.csv", index_col=None)
 
     urls = []
 
     d = {k: [] for k in WebPageValues._fields}
-
-    # for i, row in df.iterrows():
-    #     # print(row[["o_url", "r_url"]].values)
-    #     final_score = row["no_score"]
-    #     original_url = row["o_url"]
-    #     # if 0.6 > final_score > 0.4:
-    #     #     # print(url, final_score)
-    #     urls += original_url.split()
+    # iter_urls("http://support.blogg.no")
+    for i, row in df.iterrows():
+        # print(row[["o_url", "r_url"]].values)
+        final_score = row["no_score"]
+        original_url = row["o_url"]
+        # if 0.6 > final_score > 0.4:
+        #     # print(url, final_score)
+        urls += original_url.split()
 
     # urls = [json.loads(s)["requestedUri"] for i, s in enumerate(open("res/extracted_texts/veidemann/texts.ldjson"))]
 
     # urls = [u for u in urls if re.match(r"^https://www\.[^/]+\.no/?$", u)]
-
-
-    # print(len(urls))
-    # num_iterations = 100
-    # total_time = 0.0
-    # for original_url in urls[:num_iterations]:
-    #     start = time.time()
-    #     iter_urls(original_url)
-    #     stop = time.time()
-    #     duration = stop - start
-    #     print("Time spent:", duration, "\n")
-    #     total_time += duration
+    random.shuffle(urls)
+    print(len(urls))
+    num_iterations = 100
+    total_time = 0.0
+    for original_url in urls[:num_iterations]:
+        start = time.time()
+        iter_urls(original_url)
+        stop = time.time()
+        duration = stop - start
+        print("Time spent:", duration, "\n")
+        total_time += duration
     #
     # # start = time.time()
     # # iter_urls("http://www.hiab.at")
     # # stop = time.time()
     # # duration = stop - start
     # # print("Time spent:", duration, "\n")
-    # print("Total time:", total_time)
-    # print("Average time:", total_time/num_iterations)
-    #
-    # df = pd.DataFrame.from_dict(d)
-    # df.to_csv("uri_scores.csv", index=False)
-    # exit(0)
+    print("Total time:", total_time)
+    print("Average time:", total_time/num_iterations)
+
+    df = pd.DataFrame.from_dict(d)
+    df.to_csv("uri_scores.csv", index=False)
+    exit(0)
     # iter_urls("http://www.eflorist.co.uk")
 
     # d = {k: [] for k in WebPageValues._fields}
-    files = os.listdir("res/oos_liste_03.01.19")
-
-    for file in files:
-        if not re.match(r"uri_(\W|_)", file):
-            f = open(f"res/oos_liste_03.01.19/{file}")
-            urls += [url.strip() for url in f]
-
-    random.shuffle(urls)
-
-    print(len(urls))
-
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        pool.map(iter_urls, urls, timeout=120)
-        while not pool._work_queue.empty():
-            print("Sleeping")
-            sleep(1000)
-            print("Slept")
-            try:
-                df = pd.DataFrame.from_dict(d)
-                df.to_csv("uri_scores.csv", index=False)
-                print("CSV saved")
-            except ValueError as e:
-                print(e)
-        pool.shutdown(False)
-
-    # in case it actually finishes
-    df = pd.DataFrame.from_dict(d)
-    df.to_csv("uri_scores.csv", index=False)
+    # files = os.listdir("res/oos_liste_03.01.19")
+    #
+    # for file in files:
+    #     if not re.match(r"uri_(\W|_)", file):
+    #         f = open(f"res/oos_liste_03.01.19/{file}")
+    #         urls += [url.strip() for url in f]
+    #
+    # random.shuffle(urls)
+    #
+    # print(len(urls))
+    #
+    # with ThreadPoolExecutor(max_workers=16) as pool:
+    #     pool.map(iter_urls, urls, timeout=120)
+    #     while not pool._work_queue.empty():
+    #         print("Sleeping")
+    #         sleep(1000)
+    #         print("Slept")
+    #         try:
+    #             df = pd.DataFrame.from_dict(d)
+    #             df.to_csv("uri_scores.csv", index=False)
+    #             print("CSV saved")
+    #         except ValueError as e:
+    #             print(e)
+    #     pool.shutdown(False)
+    #
+    # # in case it actually finishes
+    # df = pd.DataFrame.from_dict(d)
+    # df.to_csv("uri_scores.csv", index=False)

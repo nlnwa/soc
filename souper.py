@@ -31,7 +31,7 @@ counties = "|".join(expressions["counties"])
 pattern_names = re.compile(f"{ensure_start}(({boy_names}|{girl_names}) ({surnames})){ensure_end}")
 pattern_postal = re.compile(postal_codes, re.IGNORECASE)
 pattern_phone = re.compile(r"([^\d]|^)((\(?(\+|00)?47\)?)(\W?\d){8})([^\d]|$)")  # eg. "+47 51 99 00 00"
-pattern_norway = re.compile(f"{ensure_start}(norwegian|norsk|{norway_names}){ensure_end}", re.IGNORECASE)
+pattern_norway = re.compile(f"{ensure_start}({norway_names}){ensure_end}", re.IGNORECASE)
 pattern_counties = re.compile(f"{ensure_start}({counties}){ensure_end}", re.IGNORECASE)
 pattern_kroner = re.compile(r"(\d+ ?(kr(oner)?|NOK))" + ensure_end, re.IGNORECASE)
 pattern_email = re.compile(r"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:["
@@ -41,14 +41,9 @@ pattern_email = re.compile(r"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+
                            r"a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\["
                            r"\x01-\x09\x0b\x0c\x0e-\x7f])+)\])")  # https://emailregex.com/
 
-# Test the patterns
-assert pattern_names.fullmatch("Jan Hansen")
-assert pattern_postal.fullmatch("8624 Mo i Rana")
-assert pattern_phone.fullmatch("+47 23 27 60 00")
-assert pattern_norway.fullmatch("Norge")
-assert pattern_counties.fullmatch("Nordland")
-assert pattern_kroner.fullmatch("420 kr")
-assert pattern_email.fullmatch("nb@nb.no")
+pattern_kr_dom = re.compile("se|dk|is|fo|gl", re.IGNORECASE)  # Domains of countries that use kr
+pattern_kr_lan = re.compile("sv|da|is|fo|kl", re.IGNORECASE)  # Language codes of countries that use kr
+pattern_no_html_lang = re.compile("^(no|nb|nn|nno|nob|nor)|bokmaal|nynorsk", re.IGNORECASE)  # Norwegian HTML lang names
 
 # All country code top level domains
 pattern_cctld = re.compile("ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bl|bm|bn"
@@ -60,6 +55,16 @@ pattern_cctld = re.compile("ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|a
                            "|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm"
                            "|sn|so|sr|ss|st|su|sv|sx|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk"
                            "|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zr|zw")
+
+
+# Test the patterns
+assert pattern_names.fullmatch("Jan Hansen")
+assert pattern_postal.fullmatch("8624 Mo i Rana")
+assert pattern_phone.fullmatch("+47 23 27 60 00")
+assert pattern_norway.fullmatch("Norge")
+assert pattern_counties.fullmatch("Nordland")
+assert pattern_kroner.fullmatch("420 kr")
+assert pattern_email.fullmatch("nb@nb.no")
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -267,18 +272,22 @@ def norwegian_version(connection, html=None):
     if url_parts[-1] == "no":
         return {"url": url, "scheme": "already_no", "ip_match": 4}  # No point in testing as it's already Norwegian
 
-    if html:  # Goes through all links to check for language links
+    if html:  # Goes through all links to check for language changers
         soup = BeautifulSoup(html, "html.parser")
-        lang_pattern = re.compile("^(nb|nn)(-NO)?$", re.IGNORECASE)
-        # Google recommends hreflang for specifying different language for website
+        # Google recommends hreflang for specifying different languages for websites
         # https://support.google.com/webmasters/answer/189077?hl=en
-        it = soup.find_all(["a", "link"], hreflang=lang_pattern)
+
+        # Schemes are ordered from strongest to weakest
+        it = soup.find_all(["a", "link"], hreflang=pattern_no_html_lang)
         scheme = "href-hreflang"
         if not it:
-            it = soup.find_all("a", string=pattern_norway)
-            scheme = "href-norway"
+            it = soup.find_all("a", string=re.compile(f"^\\W*({norway_names}|no)\\W*$", re.IGNORECASE))
+            scheme = "href-norway-full"
         if not it:
-            it = soup.find_all(["a", "link"], lang=lang_pattern)
+            it = soup.find_all("a", string=pattern_norway)
+            scheme = "href-norway-partial"
+        if not it:
+            it = soup.find_all(["a", "link"], lang=pattern_no_html_lang)
             scheme = "href-lang"
 
         for link in it:
@@ -337,7 +346,7 @@ class WebPage:
     Simple class to handle logic for web pages.
     """
 
-    def __init__(self, orig_url, redirect_url, raw_html, geo_loc, ip, content_language, no_version=None):
+    def __init__(self, orig_url, redirect_url, raw_html, ip, geo_loc=None, content_language=None, no_version=None):
         """
         :param orig_url: the original URL.
         :param redirect_url: the new URL after being redirected.
@@ -350,10 +359,11 @@ class WebPage:
         self.orig_url = orig_url
         self.redirect_url = redirect_url
         self.raw_html = raw_html
-        self.geo_loc = geo_loc
         self.ip = ip
+        # Replace falsy values with strings for embedding projector compatibility
+        self.geo_loc = geo_loc or "missing"
         self.content_language = content_language or "missing"
-        self.no_version = no_version
+        self.no_version = no_version or "missing"
 
     @staticmethod
     def from_url(url):
@@ -382,19 +392,26 @@ class WebPage:
         Gives a score of how Norwegian a page is, normalized between 0 and 1
         """
         norwegian = resp["language"]["nor_score"] * 2
+
         reg = resp["regexes"]
         postal = normalize(reg["postal"]["unique"], 1, 2.0)
-        county = normalize(reg["county"]["total"], 2, 1.5)
-        phone = normalize(reg["phone"]["unique"], 1, 1.25)
-        mail = normalize(reg["email"]["unique"], 1, 1.1)
+        phone = normalize(reg["phone"]["unique"], 1, 1.3)
+        mail = normalize(reg["email"]["unique"], 1, 1.2)
+        county = normalize(reg["county"]["total"], 1, 1.1)
         norway = normalize(reg["norway"]["total"], 1, 1)
-        names = normalize(reg["name"]["unique"], 1, 0.5)
 
-        # Give less weight for other countries that use kr
-        kr_max = 0.01 if re.fullmatch("se|dk|is|cz|sk", resp["domain"], re.IGNORECASE) else 0.4
-        kroner = normalize(reg["kroner"]["total"], 1, kr_max)
+        # Give less weight for other countries that
+        # - Use kr as currency symbol
+        # - Share some common names
+        mul = 1
+        if pattern_kr_dom.fullmatch(resp["domain"]) \
+                or pattern_no_html_lang.fullmatch(resp["geo"]) \
+                or pattern_kr_lan.fullmatch(resp["language"]["details"]["0"]["language_code"]):
+            mul = 0.1
+        kroner = normalize(reg["kroner"]["total"], 1, 0.1 * mul)
+        names = normalize(reg["name"]["unique"], 1, 0.5 * mul)
 
-        geo_score = 0.5 if resp["geo"] == "NO" else 0.0
+        geo_score = 0.25 if resp["geo"] == "NO" else 0.0
 
         score = norwegian + postal + phone + county + names + norway + mail + kroner + geo_score
         score = normalize(score, 1.0)
@@ -407,7 +424,7 @@ class WebPage:
         """
         dom = get_domain(self.redirect_url)
 
-        txt = get_text(self.raw_html)
+        txt = get_text(self.raw_html) or "missing"
 
         language = detect_language(self.raw_html, txt, dom)
         no_per, no_score = has_norwegian(language["is_reliable"], language["details"])
@@ -421,8 +438,6 @@ class WebPage:
         norway = has_norway(txt)
         kroner = has_kroner(txt)
         email = has_email(txt)
-
-        txt = re.sub(r"[\s,\"'’`©]+", " ", txt)  # Remove csv-troublesome characters
 
         response = {
             "orig_url": self.orig_url,

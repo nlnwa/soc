@@ -39,6 +39,18 @@ norway_names = "an Iorua|Naraoẏe|নরওয়ে|Na Uy|Nirribhidh|Noorweë|
                "Norway|නෝර්වේ|Norweege|Norwegen|Norwègia|Norwegia|Norwegska|Norwéy|ኖርዌይ|Norwij|Nowe|นอร์เวย์|" \
                "Norwy|Nuówēi|挪威|Nuruwai|நோர்வே".split("|")
 
+# https://translatr.varunmalhotra.xyz/
+norway_names += "Noorse|النرويجية|norveçli|нарвежская|норвежки|নরওয়েজিয়ান|norveški|noruec|Norwegian " \
+                "nga|norský|norwegian|Norsk|Norwegisch|Νορβηγός|Norwegian|Norwegian|noruego|norra|Norvegiako" \
+                "|نروژی|norja|norvégien|Gaeilge|Noruegués|નૉર્વેજીયન|Yaren mutanen " \
+                "Norway|नार्वेजियन|Norwegian|norveški|norwegian|norvég|նորվեգական|Norwegia|Norwegian|norwegian" \
+                "|norvegese|נורבגי|ノルウェーの|Norwegian|ნორვეგიული|норвегиялық|ន័រវេស|ನಾರ್ವೇಜಿಯನ್|노르웨이의|Norwegian" \
+                "|ນອກແວ|Norvegijos|norvēģu|norvejiana|Norwegian|Норвешка|നോർവീജിയൻ|Норвегийн|नॉर्वेजियन|norwegian" \
+                "|Norveġiż|နျော|नर्वेजियन|Noors|norsk|Chinorowe|ਨਾਰਵੇਈ|norweski|norueguês|norvegian" \
+                "ă|норвежский|නෝර්වීජියානු|nórsky|Norveški|Norwegian|norvegjez|норвешки|Norwegian|Norwegia|Norwegian" \
+                "|Norway|நார்வேஜியன்|నార్వేజియన్|Норвегиягӣ|นอร์เวย์|Norwegian|Norveçli|норвезький|ناروے|Norvegiya|Na " \
+                "Uy|נאָרוועגיש|Norwegian|挪威|挪威|挪威|Norwegian".split("|")
+
 # https://en.wikipedia.org/wiki/Administrative_divisions_of_Norway#Regions
 counties = r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|romsdal|nordland|oppland|oslo|" \
            r"rogaland|sogn|fjordane|telemark|troms|trøndelag|vest.?agder|vestfold|østfold".split("|")

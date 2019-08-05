@@ -188,7 +188,7 @@ def detect_language(html=None, txt=None, domain=None):
     return resp
 
 
-def has_norwegian(is_reliable, details):
+def norwegian_score(is_reliable, details):
     """
     Uses cld2 to find Norwegian.
 
@@ -227,7 +227,7 @@ def get_domain(url):
     return url_parts[-1]
 
 
-def norwegian_version(connection, html=None):
+def norwegian_version(connection, html=None) -> dict:
     """
     Attempts to find a Norwegian version of a page, first by looking for links that match the Norway regex,
     and afterwards by simply replacing the domain with .no,
@@ -272,7 +272,7 @@ def norwegian_version(connection, html=None):
     if url_parts[-1] == "no":
         return {"url": url, "scheme": "already_no", "ip_match": 4}  # No point in testing as it's already Norwegian
 
-    if html:  # Goes through all links to check for language changers
+    if html:  # Goes through links to check for language changers
         soup = BeautifulSoup(html, "html.parser")
         # Google recommends hreflang for specifying different languages for websites
         # https://support.google.com/webmasters/answer/189077?hl=en
@@ -281,13 +281,17 @@ def norwegian_version(connection, html=None):
         it = soup.find_all(["a", "link"], hreflang=pattern_no_html_lang)
         scheme = "href-hreflang"
         if not it:
-            it = soup.find_all("a", string=re.compile(f"^\\W*({norway_names}|no)\\W*$", re.IGNORECASE))
+            # Full matches Norway regex in text with repetitions
+            it = soup.find_all("a", string=re.compile(f"^(\\W*({norway_names}|no|bokmål|nynorsk))+\\W*$", re.I))
             scheme = "href-norway-full"
         if not it:
-            it = soup.find_all("a", string=pattern_norway)
+            it = soup.find_all("a", string=pattern_norway)  # Matches Norway regex in text
             scheme = "href-norway-partial"
         if not it:
-            it = soup.find_all(["a", "link"], lang=pattern_no_html_lang)
+            it = soup.find_all("a", href=re.compile(norway_names))  # Matches Norway regex in link
+            scheme = "href-norway-link"
+        if not it:
+            it = soup.find_all(["a", "link"], lang=pattern_no_html_lang)  # Matches Norwegian lang tag
             scheme = "href-lang"
 
         for link in it:
@@ -359,11 +363,11 @@ class WebPage:
         self.orig_url = orig_url
         self.redirect_url = redirect_url
         self.raw_html = raw_html
-        self.ip = ip
+        self.no_version = no_version
         # Replace falsy values with strings for embedding projector compatibility
-        self.geo_loc = geo_loc or "missing"
-        self.content_language = content_language or "missing"
-        self.no_version = no_version or "missing"
+        self.ip = ip
+        self.geo_loc = geo_loc
+        self.content_language = content_language
 
     @staticmethod
     def from_url(url):
@@ -391,14 +395,14 @@ class WebPage:
         """
         Gives a score of how Norwegian a page is, normalized between 0 and 1
         """
-        norwegian = resp["language"]["nor_score"] * 2
+        norwegian = resp["language"]["norwegian_score"] * 2
 
-        reg = resp["regexes"]
+        reg = resp["regex"]
         postal = normalize(reg["postal"]["unique"], 1, 2.0)
         phone = normalize(reg["phone"]["unique"], 1, 1.3)
         mail = normalize(reg["email"]["unique"], 1, 1.2)
         county = normalize(reg["county"]["total"], 1, 1.1)
-        norway = normalize(reg["norway"]["total"], 1, 1)
+        norway = normalize(reg["norway"]["total"], 2, 1.1)
 
         # Give less weight for other countries that
         # - Use kr as currency symbol
@@ -424,12 +428,16 @@ class WebPage:
         """
         dom = get_domain(self.redirect_url)
 
-        txt = get_text(self.raw_html) or "missing"
+        txt = get_text(self.raw_html)
+
+        soup = BeautifulSoup(self.raw_html, "html.parser")
+        tag = soup.find_all("html")[0]
+        html_lang = tag.get("lang")
 
         language = detect_language(self.raw_html, txt, dom)
-        no_per, no_score = has_norwegian(language["is_reliable"], language["details"])
+        no_per, no_score = norwegian_score(language["is_reliable"], language["details"])
         nor_score = normalize(language["text_bytes_found"] * no_per * no_score, 1e7)  # 200*100*500 gives 50%
-        language["nor_score"] = nor_score
+        language["norwegian_score"] = nor_score
 
         postal = has_postal(txt)
         phone = has_phone_number(txt)
@@ -440,15 +448,16 @@ class WebPage:
         email = has_email(txt)
 
         response = {
-            "orig_url": self.orig_url,
-            "redir_url": self.redirect_url,
+            "original_url": self.orig_url,
+            "redirect_url": self.redirect_url,
             "ip": self.ip,
             "geo": self.geo_loc,
             "domain": dom,
+            "html_lang": html_lang,
             "content_language": self.content_language,
             "norwegian_version": self.no_version,
             "language": language,
-            "regexes": {
+            "regex": {
                 "postal": {
                     "unique": len(postal),
                     "total": sum(postal.values())
@@ -482,7 +491,7 @@ class WebPage:
 
         no_score = self.is_norwegian(response)
 
-        response["no_score"] = no_score
+        response["norvegica_score"] = no_score
         response["text"] = txt
 
         return response

@@ -36,20 +36,20 @@ norway_names = "an Iorua|Naraoẏe|নরওয়ে|Na Uy|Nirribhidh|Noorweë|
                "Norvegia|Norvégia|Norvehia|Норвегія|Norvēģija|Norvegija|Norvegio|Norvegiya|Норвегия|Norvegiya" \
                "|נורבגיה|" \
                "in-Norveġja|Norvegjia|Norvegye|נאָרװעגיע|Norveška|Норвешка|Norveška|Norvigía|Νορβηγία|Norway|" \
-               "Norway|නෝර්වේ|Norweege|Norwegen|Norwègia|Norwegia|Norwegska|Norwéy|ኖርዌይ|Norwij|Nowe|นอร์เวย์|" \
+               "Norway|නෝර්වේ|Norweege|Norwegen|Norwègia|Norwegia|Norwegska|Norwéy|ኖርዌይ|Norwij|นอร์เวย์|" \
                "Norwy|Nuówēi|挪威|Nuruwai|நோர்வே".split("|")
 
 # https://translatr.varunmalhotra.xyz/
-norway_names += "Noorse|النرويجية|norveçli|нарвежская|норвежки|নরওয়েজিয়ান|norveški|noruec|Norwegian " \
-                "nga|norský|norwegian|Norsk|Norwegisch|Νορβηγός|Norwegian|Norwegian|noruego|norra|Norvegiako" \
-                "|نروژی|norja|norvégien|Gaeilge|Noruegués|નૉર્વેજીયન|Yaren mutanen " \
-                "Norway|नार्वेजियन|Norwegian|norveški|norwegian|norvég|նորվեգական|Norwegia|Norwegian|norwegian" \
-                "|norvegese|נורבגי|ノルウェーの|Norwegian|ნორვეგიული|норвегиялық|ន័រវេស|ನಾರ್ವೇಜಿಯನ್|노르웨이의|Norwegian" \
-                "|ນອກແວ|Norvegijos|norvēģu|norvejiana|Norwegian|Норвешка|നോർവീജിയൻ|Норвегийн|नॉर्वेजियन|norwegian" \
-                "|Norveġiż|နျော|नर्वेजियन|Noors|norsk|Chinorowe|ਨਾਰਵੇਈ|norweski|norueguês|norvegian" \
-                "ă|норвежский|නෝර්වීජියානු|nórsky|Norveški|Norwegian|norvegjez|норвешки|Norwegian|Norwegia|Norwegian" \
-                "|Norway|நார்வேஜியன்|నార్వేజియన్|Норвегиягӣ|นอร์เวย์|Norwegian|Norveçli|норвезький|ناروے|Norvegiya|Na " \
-                "Uy|נאָרוועגיש|Norwegian|挪威|挪威|挪威|Norwegian".split("|")
+norway_names += "Noorse|النرويجية|Norveç|Нарвежская|норвежки|নরওয়েজিয়ান|Norveški|Noruec|Norwegian|Norština|Norwyeg" \
+                "|Norsk|norwegisch|Νορβηγός|Norwegian|Norwegian|noruego|Norra keeles|Norvegiako|نروژی|Norjan " \
+                "kieli|norvégien|Ioruais|Noruegués|નોર્વેજીયન|Yaren mutanen " \
+                "Norway|नार्वेजियन|Norwegian|norveški|Nòvejyen|norvég|Նորվեգերեն|Norwegia|Ndi " \
+                "Norwegian|Norsku|norvegese|נורווגית|ノルウェー語|Norwegia|ნორვეგიული|Норвегиялық|ន័រវេស។|ನಾರ್ವೇಜಿಯನ್|노르웨이 " \
+                "인|Norwegian|ນໍເວ|Norvegų|Norvēģi|norvejiana|Rakihi|Норвешки|നോർവീജിയൻ|Норвеги хэл|नॉर्वेजियन|Bahasa " \
+                "Norway|Norveġiż|နျော|नर्वेजियन|Noors|Norwegian|Chinorway|ਨਾਰਵੇਜੀਅਨ|norweski|norueguês|norvegian" \
+                "|норвежский язык|නෝර්වීජියානු|nórsky|Norveščina|Noorwiijiga|norvegjez|Норвешки|Se-Norway|Norwegia" \
+                "|norrman|Kinorwe|நார்வேஜியன்|నార్వేజియన్|Норвегӣ|นอร์เวย์|Norwegian|Norveççe" \
+                "|Норвезька|نارویجین|Norvegcha|Na Uy|נאָרוועגיש|Nowejiani|挪威|挪威|挪威|IsiNorway".split("|")
 
 # https://en.wikipedia.org/wiki/Administrative_divisions_of_Norway#Regions
 counties = r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|romsdal|nordland|oppland|oslo|" \

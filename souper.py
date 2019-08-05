@@ -48,7 +48,7 @@ pattern_no_html_lang = re.compile("^(no|nb|nn|nno|nob|nor)|bokmaal|nynorsk", re.
 # All country code top level domains
 pattern_cctld = re.compile("ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bl|bm|bn"
                            "|bo|br|bq|bs|bt|bv|bw|by|bz|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cs|cu|cv|cw|cx|cy|cz"
-                           "|dd|de|dj|dk|dm|do|dz|ec|ee|eg|eh|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl"
+                           "|dd|de|dj|dk|dm|do|dz|ec|ee|eg|eh|er|es|et|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl"
                            "|gm|gn|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|in|io|iq|ir|is|it|je|jm|jo|jp"
                            "|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mf|mg|mh|mk"
                            "|ml|mm|mn|mo|mp|mq|mr|ms|mt|mu|mv|mw|mx|my|mz|na|nc|ne|nf|ng|ni|nl|no|np|nr|nu|nz|om|pa|pe"
@@ -116,7 +116,7 @@ def get_text(connection_or_html):
 
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
-    txt = soup.getText(separator=" ").strip()
+    txt = soup.get_text(separator=" ").strip()
     txt = re.sub(r"\s+", " ", txt)
 
     return txt
@@ -277,6 +277,7 @@ def norwegian_version(connection, html=None) -> dict:
         # Google recommends hreflang for specifying different languages for websites
         # https://support.google.com/webmasters/answer/189077?hl=en
 
+        # TODO iterate through all links and use conditions one by one (should cover https://www.hillsvet.tw/#)
         # Schemes are ordered from strongest to weakest
         it = soup.find_all(["a", "link"], hreflang=pattern_no_html_lang)
         scheme = "href-hreflang"
@@ -302,7 +303,7 @@ def norwegian_version(connection, html=None) -> dict:
                     # This is to prevent things like https://nordnatur.se/2018/08/01/besok-lofoten/
                     # But still allow for example https://www.winterhalter.com/no/
                     if scheme == "href-hreflang" or not re.fullmatch(pattern_cctld, url_parts[-1]):
-                        new_url = parsed.scheme + base_url + href
+                        new_url = urlunparse((parsed.scheme, base_url, href, None, None, None))
                         scheme = "/" + scheme
                     else:
                         continue
@@ -360,7 +361,7 @@ class WebPage:
         :param content_language: the value of the content-language header received.
         :param no_version: Norwegian version of the site if applicable.
         """
-        self.orig_url = orig_url
+        self.original_url = orig_url
         self.redirect_url = redirect_url
         self.raw_html = raw_html
         self.no_version = no_version
@@ -448,7 +449,7 @@ class WebPage:
         email = has_email(txt)
 
         response = {
-            "original_url": self.orig_url,
+            "original_url": self.original_url,
             "redirect_url": self.redirect_url,
             "ip": self.ip,
             "geo": self.geo_loc,
@@ -495,3 +496,16 @@ class WebPage:
         response["text"] = txt
 
         return response
+
+
+# Some simple assertions to make sure it's working correctly
+assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
+assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["url"]
+assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["url"]
+assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == "href-norway-full"
+assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
+assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == "href-norway-full"
+assert WebPage.from_url("https://bodilmunch.blogspot.com/").values()["norwegian_version"]["scheme"] == "href-norway-partial"
+assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == "href-norway-partial"
+assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == "/href-norway-full"
+assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == "href-norway-full"

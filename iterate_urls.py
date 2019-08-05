@@ -7,6 +7,7 @@ from pandas.io.json import json_normalize
 
 from souper import *
 
+# Iterates through OOS list and writes information to CSV
 if __name__ == '__main__':
     responses = []
 
@@ -29,18 +30,6 @@ if __name__ == '__main__':
                 socket.gaierror) as err:
             print(url, err)
             pass
-
-
-    # Some simple assertions to make sure it's working correctly
-    assert visit_url("http://www.destinasjonroros.no", save=False)["regexes"]["phone"]["total"] == 1
-    assert visit_url("http://www.teknamotor.sk", save=False)["norwegian_version"]["url"]
-    assert visit_url("https://www.infosoft.se", save=False)["norwegian_version"]["url"]
-    assert visit_url("https://simplisoftware.se/", save=False)["norwegian_version"]["scheme"] == "href-norway-full"
-    assert visit_url("http://hespe.blogspot.com", save=False)["language"]["text_bytes_found"] > 0
-    assert visit_url("https://www.dedicare.se/", save=False)["norwegian_version"]["scheme"] == "href-norway-full"
-    assert visit_url("https://bodilmunch.blogspot.com/", save=False)["norwegian_version"][
-               "scheme"] == "href-norway-partial"
-    assert visit_url("https://blog.e-hoi.de", save=False)["norwegian_version"]["scheme"] == "href-norway-partial"
 
     urls = []
 

@@ -5,11 +5,14 @@ The repository mostly contains code for OOS (out-of-scope) handling, with a few 
 
 Additional files for language detection using machine learning are available [here](https://drive.google.com/open?id=1Om7PGu_auqUMncnj1tIikawcy_9tnytj). These files are not used, but exist for later reference if needed.
 
-The main file is server.py, which provides two services:
-- Language detection ("/language")
-    - Takes in text or raw html, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
+The main file is server.py, which when run provides two services:
 - URL Norvegica detection ("/url").
     - Takes in a single URL, and gives a score of how Norwegian the website is (on a scale from 0 to 1), as well as details for the prediction.
+- Language detection ("/language")
+    - Does only the language detection part of the URL service.
+    - Takes in text or raw html, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
+    
+There is also a Dockerfile which will load the relevant files, install necessary packages and run server.py
 
 Example outputs:
 <details>
@@ -22,6 +25,7 @@ Input:
 ```
 </p>
 <p>
+Output:
 
 ```json
 {
@@ -110,6 +114,7 @@ Input:
 ```
 </p>
 <p>
+Output:
 
 ```json
 {

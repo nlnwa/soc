@@ -5,16 +5,60 @@ The repository mostly contains code for OOS (out-of-scope) handling, with a few 
 
 Additional files for language detection using machine learning are available [here](https://drive.google.com/open?id=1Om7PGu_auqUMncnj1tIikawcy_9tnytj). These files are not used, but exist for later reference if needed.
 
+## Usage
 The main file is server.py, which when run provides two services:
 - URL Norvegica detection ("/url").
-    - Takes in a single URL, and gives a score of how Norwegian the website is (on a scale from 0 to 1), as well as details for the prediction.
+    - Takes a single `url`, and gives a score of how Norwegian the website is (on a scale from 0 to 1), as well as details for the prediction.
 - Language detection ("/language")
     - Does only the language detection part of the URL service.
-    - Takes in text or raw html, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
+    - Takes in `text` and/or `raw_html`, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
     
 There is also a Dockerfile which will load the relevant files, install necessary packages and run server.py
 
-Example outputs:
+## Result description
+Descriptions of the fields returned by the "/url" service. The "/language" service returns only the `language` part without `norwegian_score`
+- `original_url`: The original input URL
+- `redirect_url`: The resulting URL after redirect
+- `ip`: The IP of the website
+- `geo`: The geolocation of the website as determined by GeoIP2
+- `domain`: The domain of the website
+- `html_lang`: Lang tag of the website HTML
+- `content_language`: Content-Language from HTTP header
+- `norwegian_version`: Information about possible Norwegian version
+    - `url`: The URL of the Norwegian version
+    - `ip_match`: The number of matching IPv4 bytes (0-4) between `ip` and the ip of the Norwegian version.
+    - `scheme`: Method of discovery, can be one of (in order of estimated strength):
+        - `already_no`: The website's domain is already .no
+        - `href-hreflang-rel`: Link that follows [the format recommended by Google](https://support.google.com/webmasters/answer/189077?hl=en) to specify alternate language versions
+        - `href-hreflang`: Other link with hreflang tag.
+        - `href-norway-full`: Link that contains text with only "Norway"/"Norwegian" in any language
+        - `replace`: Found by replacing domain with .no
+        - `href-norway-partial`: Link that contains text with "Norway"/"Norwegian" in any language, but also other text
+        - `href-lang`: Link with lang tag
+        - `href-norway-lang`: Link where URL contains "Norway"/"Norwegian" in any language
+        - `no_match`: No Norwegian version was found
+- `language`: Language information produced by cld2. Apart from `norwegian_score` this is also the result from the "/language" service
+    - `norwegian_score`: A calculated score of how Norwegian the text is on a scale from 0 to 1
+    - `is_reliable`: Whether or not the language detection considers the prediction to be reliable
+    - `text_bytes_found`: Number of text bytes found by the language detection
+    - `details`: Details about the language prediction, gives information about the top three languages
+        - `0`, `1`, `2`: The language rank
+            - `language_name`: Name of language
+            - `language_code`: Language code
+            - `percent`: The estimated percentage of the text that is this language
+            - `score`: A score of how confident the prediction is
+- `regex`: Regex information. For each expression the number of `unique` and `total` matches is given
+    - `postal`: Postal codes, e.g. `8624 Mo i Rana`
+    - `phone`: Phone numbers, e.g. `+47 23 27 60 00`
+    - `county`: Norwegian counties, e.g. `Nordland`
+    - `name`: Typical Norwegian names, made by combining the most common first and last names in Norway (from [SSB](https://www.ssb.no/)), e.g. `Jan Hansen`
+    - `norway`: "Norway"/"Norwegian" in any language, same as is used by the Norwegian version detection
+    - `kroner`: Any number + kr, e.g. `420 kr`
+    - `email`: Any email that ends with .no, e.g. `nb@nb.no`
+- `norvegica_score`: Final score of how 'Norwegian' the website seems to be
+- `text`: The extracted text from the website
+
+### Example outputs:
 <details>
 <summary>URL</summary>
 <p>

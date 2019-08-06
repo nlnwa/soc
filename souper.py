@@ -10,8 +10,20 @@ from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen, Request
 
 import pycld2
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from geoip2.database import Reader
+
+NO_MATCH = "no_match"
+REPLACE = "replace"
+HREF_NORWAY_LINK = "href-norway-link"
+HREF_NORWAY_PARTIAL = "href-norway-partial"
+HREF_LANG = "href-lang"
+HREF_NORWAY_FULL = "href-norway-full"
+HREF_HREFLANG = "href-hreflang"
+HREF_HREFLANG_REL = "href-hreflang-rel"
+ALREADY_NO = "already_no"
+SCHEMES = ALREADY_NO, HREF_HREFLANG_REL, HREF_HREFLANG, HREF_NORWAY_FULL, HREF_LANG, \
+          REPLACE, HREF_NORWAY_PARTIAL, HREF_NORWAY_LINK, NO_MATCH  # Ordered from best to worst
 
 reader = Reader('res/GeoIP2-Country.mmdb')
 
@@ -43,7 +55,8 @@ pattern_email = re.compile(r"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+
 
 pattern_kr_dom = re.compile("se|dk|is|fo|gl", re.IGNORECASE)  # Domains of countries that use kr
 pattern_kr_lan = re.compile("sv|da|is|fo|kl", re.IGNORECASE)  # Language codes of countries that use kr
-pattern_no_html_lang = re.compile("^(no|nb|nn|nno|nob|nor)|bokmaal|nynorsk", re.IGNORECASE)  # Norwegian HTML lang names
+pattern_no_html_lang = re.compile("^(no|nb|nn|nno|nob|nor)|bokmaal|nynorsk|NO$",
+                                  re.IGNORECASE)  # Norwegian HTML lang names
 
 # All country code top level domains
 pattern_cctld = re.compile("ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bl|bm|bn"
@@ -55,7 +68,6 @@ pattern_cctld = re.compile("ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|a
                            "|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm"
                            "|sn|so|sr|ss|st|su|sv|sx|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk"
                            "|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zr|zw")
-
 
 # Test the patterns
 assert pattern_names.fullmatch("Jan Hansen")
@@ -132,13 +144,14 @@ def geo(connection):
     return response.country.iso_code
 
 
-def detect_language(html=None, txt=None, domain=None):
+def detect_language(html=None, txt=None, domain=None, http_lang=None):
     """
     Uses cld2 to detect languages, and formats into dict.
 
     :param domain: domain of web page, used to weight languages.
     :param html: the html of the page.
     :param txt: the extracted text from the page.
+    :param http_lang: HTTP language header
     :return: is_reliable, bytes_found, details
     """
     is_reliable, bytes_found, details = False, 0, []
@@ -149,7 +162,7 @@ def detect_language(html=None, txt=None, domain=None):
     # The cld2 html result is slightly preferred due to more in-depth analysis
     if html:
         try:
-            irh, bfh, dth = pycld2.detect(html, isPlainText=False, hintTopLevelDomain=domain)
+            irh, bfh, dth = pycld2.detect(html, isPlainText=False, hintTopLevelDomain=domain, hintLanguageHTTPHeaders=http_lang)
         except pycld2.error:
             pass
 
@@ -159,7 +172,7 @@ def detect_language(html=None, txt=None, domain=None):
         else:
             try:
                 txt = re.sub(r"\W+", " ", txt)  # To prevent invalid characters
-                irt, bft, dtt = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain)
+                irt, bft, dtt = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain, hintLanguageHTTPHeaders=http_lang)
             except pycld2.error:
                 pass
 
@@ -227,110 +240,6 @@ def get_domain(url):
     return url_parts[-1]
 
 
-def norwegian_version(connection, html=None) -> dict:
-    """
-    Attempts to find a Norwegian version of a page, first by looking for links that match the Norway regex,
-    and afterwards by simply replacing the domain with .no,
-
-    Most of the time this will give an actual Norwegian version of the page, though some false positives may occur.
-    However, false positives will still return a valid Norwegian website,
-    even though it may not be connected to the input page.
-    :return: a dict containing the scheme in which it was discovered,
-             the number of matching bytes, and the URL of the page.
-    """
-
-    # Internal method that attempts to establish a connection to new URL
-    def try_url(new_u):
-        try:
-            new_connection = urlopen(Request(url=new_u, headers=headers), timeout=30)
-
-            status = new_connection.getcode()
-            if (status == HTTPStatus.OK
-                    or status == HTTPStatus.MOVED_PERMANENTLY
-                    or status == HTTPStatus.FOUND):
-                ip_o = get_ip(new_connection)
-                ip_n = get_ip(connection)
-
-                i = 0
-                for o, n in zip(ip_o.split("."), ip_n.split(".")):
-                    if o == n:
-                        i += 1
-                    else:
-                        break
-                return i, new_connection.geturl()
-        except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout,
-                socket.gaierror):
-            pass
-        return None
-
-    url = connection.geturl()
-    parsed = urlparse(url)
-    base_url = parsed.netloc
-
-    url_parts = base_url.split('.')
-
-    if url_parts[-1] == "no":
-        return {"url": url, "scheme": "already_no", "ip_match": 4}  # No point in testing as it's already Norwegian
-
-    if html:  # Goes through links to check for language changers
-        soup = BeautifulSoup(html, "html.parser")
-        # Google recommends hreflang for specifying different languages for websites
-        # https://support.google.com/webmasters/answer/189077?hl=en
-
-        # TODO iterate through all links and use conditions one by one (should cover https://www.hillsvet.tw/#)
-        # Schemes are ordered from strongest to weakest
-        it = soup.find_all(["a", "link"], hreflang=pattern_no_html_lang)
-        scheme = "href-hreflang"
-        if not it:
-            # Full matches Norway regex in text with repetitions
-            it = soup.find_all("a", string=re.compile(f"^(\\W*({norway_names}|no|bokmål|nynorsk))+\\W*$", re.I))
-            scheme = "href-norway-full"
-        if not it:
-            it = soup.find_all("a", string=pattern_norway)  # Matches Norway regex in text
-            scheme = "href-norway-partial"
-        if not it:
-            it = soup.find_all("a", href=re.compile(norway_names))  # Matches Norway regex in link
-            scheme = "href-norway-link"
-        if not it:
-            it = soup.find_all(["a", "link"], lang=pattern_no_html_lang)  # Matches Norwegian lang tag
-            scheme = "href-lang"
-
-        for link in it:
-            href = link.get("href")
-            if href:
-                if href.startswith("/"):
-                    # Only allow non-country domains, e.g. foo.com -> foo.com/bar but not foo.dk -> foo.dk/bar
-                    # This is to prevent things like https://nordnatur.se/2018/08/01/besok-lofoten/
-                    # But still allow for example https://www.winterhalter.com/no/
-                    if scheme == "href-hreflang" or not re.fullmatch(pattern_cctld, url_parts[-1]):
-                        new_url = urlunparse((parsed.scheme, base_url, href, None, None, None))
-                        scheme = "/" + scheme
-                    else:
-                        continue
-                else:
-                    new_url = href
-
-                res = try_url(new_url)
-                if res:
-                    return {"url": res[1], "scheme": scheme, "ip_match": res[0]}
-
-    if url_parts[-2] in {"com", "co"}:  # E.g. co.uk -> no instead of co.no
-        del url_parts[-1]
-
-    url_parts[-1] = "no"
-
-    new_base_url = ".".join(url_parts)
-
-    new_url = urlunparse(
-        (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
-
-    res = try_url(new_url)
-    if res:
-        return {"url": res[1], "scheme": "replace", "ip_match": res[0]}
-
-    return {"url": None, "scheme": "no_match", "ip_match": 0}
-
-
 def normalize(x, midpoint, lim=1.0):
     """
     Normalizes such that
@@ -344,6 +253,45 @@ def normalize(x, midpoint, lim=1.0):
     :return: the normalized result.
     """
     return lim * (1 - 0.5 ** (x / midpoint))
+
+
+def place_tag(t: Tag):
+    if not t.get("href"):
+        return NO_MATCH
+
+    # Schemes are ordered from presumed strongest to weakest
+    # Method recommended by Google to specify alternate versions of page
+    # https://support.google.com/webmasters/answer/189077?hl=en
+    rel = t.get("rel", "")
+    hreflang = t.get("hreflang", "")
+    if t.name == "link" and "alternate" in rel and pattern_no_html_lang.search(hreflang):
+        return HREF_HREFLANG_REL
+
+    # Other hreflang links
+    if pattern_no_html_lang.search(hreflang):
+        return HREF_HREFLANG
+
+    # Full matches Norway regex in text with repetitions
+    pat = re.compile(f"^(\\W*({norway_names}|no|bokmål|nynorsk))+\\W*$", re.I)
+    if t.name == "a" and pat.search(t.get_text(separator=" ")):
+        return HREF_NORWAY_FULL
+
+    # Matches Norwegian lang tag
+    lang = t.get("lang", "")
+    if pattern_no_html_lang.search(lang):
+        return HREF_LANG
+
+    # Matches Norway regex in text
+    if t.name == "a" and pattern_norway.search(t.get_text(separator=" ")):
+        return HREF_NORWAY_PARTIAL
+
+    # Matches Norway regex in link
+    pat = re.compile(f"{norway_names}|no|bokmål|nynorsk")
+    hr = t.get("href", "")
+    if t.name == "a" and pat.search(hr):
+        return HREF_NORWAY_LINK
+
+    return NO_MATCH
 
 
 class WebPage:
@@ -385,14 +333,12 @@ class WebPage:
         redir = conn.geturl()
         ip = get_ip(conn)
 
-        no_ver = norwegian_version(conn, html)
-
         del conn  # Disconnect
         return WebPage(orig_url=url, redirect_url=redir, raw_html=html, geo_loc=geoloc, ip=ip,
-                       content_language=content_language, no_version=no_ver)
+                       content_language=content_language)
 
     @staticmethod
-    def is_norwegian(resp):
+    def norvegica_score(resp):
         """
         Gives a score of how Norwegian a page is, normalized between 0 and 1
         """
@@ -435,7 +381,7 @@ class WebPage:
         tag = soup.find_all("html")[0]
         html_lang = tag.get("lang")
 
-        language = detect_language(self.raw_html, txt, dom)
+        language = detect_language(self.raw_html, txt, dom, self.content_language)
         no_per, no_score = norwegian_score(language["is_reliable"], language["details"])
         nor_score = normalize(language["text_bytes_found"] * no_per * no_score, 1e7)  # 200*100*500 gives 50%
         language["norwegian_score"] = nor_score
@@ -448,6 +394,8 @@ class WebPage:
         kroner = has_kroner(txt)
         email = has_email(txt)
 
+        no_version = self.norwegian_version()
+
         response = {
             "original_url": self.original_url,
             "redirect_url": self.redirect_url,
@@ -456,7 +404,7 @@ class WebPage:
             "domain": dom,
             "html_lang": html_lang,
             "content_language": self.content_language,
-            "norwegian_version": self.no_version,
+            "norwegian_version": no_version,
             "language": language,
             "regex": {
                 "postal": {
@@ -490,22 +438,122 @@ class WebPage:
             },
         }
 
-        no_score = self.is_norwegian(response)
+        no_score = self.norvegica_score(response)
 
         response["norvegica_score"] = no_score
         response["text"] = txt
 
         return response
 
+    def find_norwegian_links(self):
+        """
+        Finds possible candidates for a Norwegian version of the page.
+        :return: a dict with a list of urls for each scheme
+        """
+        parsed = urlparse(self.redirect_url)
+        base_url = parsed.netloc
+
+        url_parts = base_url.split('.')
+
+        schemes_links = {k: [] for k in SCHEMES}
+
+        if url_parts[-1] == "no":
+            schemes_links[ALREADY_NO].append(self.redirect_url)
+            # return {"url": url, "scheme": ALREADY_NO, "ip_match": 4}  # No point in testing as it's already Norwegian
+
+        soup = BeautifulSoup(self.raw_html, "html.parser")
+
+        new_url_parts = list(url_parts)
+        if url_parts[-2] in {"com", "co"}:  # E.g. co.uk -> no instead of co.no
+            del new_url_parts[-1]
+
+        new_url_parts[-1] = "no"
+
+        new_base_url = ".".join(new_url_parts)
+
+        new_url = urlunparse(
+            (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+        schemes_links[REPLACE].append(new_url)
+
+        for tag in soup.find_all(["a", "link"]):
+            schemes_links[place_tag(tag)].append(tag.get("href"))
+
+        return schemes_links
+
+    def norwegian_version(self, norwegian_links=None) -> dict:
+        """
+        Attempts to find a Norwegian version of a page, first by looking for links that match the Norway regex,
+        and afterwards by simply replacing the domain with .no,
+
+        Most of the time this will give an actual Norwegian version of the page, though some false positives may occur.
+        However, false positives will still return a valid Norwegian website,
+        even though it may not be connected to the input page.
+        :return: a dict containing the scheme in which it was discovered,
+                 the number of matching bytes, and the URL of the page.
+        """
+
+        # Internal method that attempts to establish a connection to new URL
+        def try_url(new_u):
+            try:
+                new_connection = urlopen(Request(url=new_u, headers=headers), timeout=30)
+
+                status = new_connection.getcode()
+                if (status == HTTPStatus.OK
+                        or status == HTTPStatus.MOVED_PERMANENTLY
+                        or status == HTTPStatus.FOUND):
+                    ip_o = get_ip(new_connection)
+                    ip_n = self.ip
+
+                    i = 0
+                    for o, n in zip(ip_o.split("."), ip_n.split(".")):
+                        if o == n:
+                            i += 1
+                        else:
+                            break
+                    return i, new_connection.geturl()
+            except (HTTPError, CertificateError, URLError, ConnectionResetError, IncompleteRead, socket.timeout,
+                    socket.gaierror):
+                pass
+            return None
+
+        schemes_links = norwegian_links or self.find_norwegian_links()
+
+        for scheme in SCHEMES:
+            if scheme != NO_MATCH:
+                # Reverse sorting puts links starting with "/" at the end
+                links = sorted(schemes_links[scheme], reverse=True)
+                for link in links:
+                    if link.startswith("/"):
+                        parsed = urlparse(self.redirect_url)
+                        new_url = urlunparse((parsed.scheme, parsed.netloc, link, None, None, None))
+                        scheme = "/" + scheme
+                    else:
+                        new_url = link
+
+                    ignore_scheme = scheme in [HREF_HREFLANG_REL, HREF_HREFLANG]  # Always give valid no
+                    if not ignore_scheme and (new_url == self.original_url or new_url == self.redirect_url):
+                        continue
+
+                    res = try_url(new_url)
+                    if res:
+                        if ignore_scheme or res[1] != self.original_url and res[1] != self.redirect_url:
+                            return {"url": res[1], "scheme": scheme, "ip_match": res[0]}
+
+        return {"url": None, "scheme": NO_MATCH, "ip_match": 0}
+
 
 # Some simple assertions to make sure it's working correctly
 assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
 assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["url"]
 assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["url"]
-assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == "href-norway-full"
+assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
 assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
-assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == "href-norway-full"
-assert WebPage.from_url("https://bodilmunch.blogspot.com/").values()["norwegian_version"]["scheme"] == "href-norway-partial"
-assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == "href-norway-partial"
-assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == "/href-norway-full"
-assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == "href-norway-full"
+assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("https://bodilmunch.blogspot.com/").values()["norwegian_version"][
+           "scheme"] == HREF_NORWAY_PARTIAL
+assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
+assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL

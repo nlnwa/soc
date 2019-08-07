@@ -11,8 +11,8 @@ The main file is server.py, which when run provides two services:
     - Takes a single `url`, and gives a score of how Norwegian the website is (on a scale from 0 to 1), as well as details for the prediction.
 - Language detection ("/language")
     - Does only the language detection part of the URL service.
-    - Takes in `text` and/or `raw_html`, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
-    
+    - Takes in `text` and/or `raw_html`, or `url`, and uses [cld2](https://github.com/CLD2Owners/cld2) to produce language predictions.
+
 There is also a Dockerfile which will load the relevant files, install necessary packages and run server.py
 
 ## Result description
@@ -28,7 +28,7 @@ Descriptions of the fields returned by the "/url" service. The "/language" servi
     - `url`: The URL of the Norwegian version
     - `ip_match`: The number of matching IPv4 bytes (0-4) between `ip` and the ip of the Norwegian version.
     - `scheme`: Method of discovery, can be one of (in order of estimated strength):
-        - `already_no`: The website's domain is already .no
+        - `already_no`: The website's domain is already .no, this is quite uninteresting and is therefore returned only if no other matches are found.
         - `href-hreflang-rel`: Link that follows [the format recommended by Google](https://support.google.com/webmasters/answer/189077?hl=en) to specify alternate language versions
         - `href-hreflang`: Other link with hreflang tag.
         - `href-norway-full`: Link that contains text with only "Norway"/"Norwegian" in any language
@@ -52,7 +52,7 @@ Descriptions of the fields returned by the "/url" service. The "/language" servi
     - `phone`: Phone numbers, e.g. `+47 23 27 60 00`
     - `county`: Norwegian counties, e.g. `Nordland`
     - `name`: Typical Norwegian names, made by combining the most common first and last names in Norway (from [SSB](https://www.ssb.no/)), e.g. `Jan Hansen`
-    - `norway`: "Norway"/"Norwegian" in any language, same as is used by the Norwegian version detection
+    - `norway`: "Norway"/"Norwegian" in any language.
     - `kroner`: Any number + kr, e.g. `420 kr`
     - `email`: Any email that ends with .no, e.g. `nb@nb.no`
 - `norvegica_score`: Final score of how 'Norwegian' the website seems to be

@@ -22,7 +22,7 @@ HREF_NORWAY_FULL = "href-norway-full"
 HREF_HREFLANG = "href-hreflang"
 HREF_HREFLANG_REL = "href-hreflang-rel"
 ALREADY_NO = "already_no"
-SCHEMES = ALREADY_NO, HREF_HREFLANG_REL, HREF_HREFLANG, HREF_NORWAY_FULL, HREF_LANG, \
+SCHEMES = ALREADY_NO, HREF_HREFLANG_REL, HREF_NORWAY_FULL, HREF_HREFLANG, HREF_LANG, \
           REPLACE, HREF_NORWAY_PARTIAL, HREF_NORWAY_LINK, NO_MATCH  # Ordered from best to worst
 
 reader = Reader('res/GeoIP2-Country.mmdb')
@@ -55,7 +55,7 @@ pattern_email = re.compile(r"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+
 
 pattern_kr_dom = re.compile("se|dk|is|fo|gl", re.IGNORECASE)  # Domains of countries that use kr
 pattern_kr_lan = re.compile("sv|da|is|fo|kl", re.IGNORECASE)  # Language codes of countries that use kr
-pattern_no_html_lang = re.compile("^(no|nb|nn|nno|nob|nor)|bokmaal|nynorsk|NO$",
+pattern_no_html_lang = re.compile("^(no(?!ne)|nb|nn|nno|nob|nor)|bokmaal|nynorsk|NO$",
                                   re.IGNORECASE)  # Norwegian HTML lang names
 
 # All country code top level domains
@@ -147,6 +147,7 @@ def geo(connection):
 def detect_language(html=None, txt=None, domain=None, http_lang=None):
     """
     Uses cld2 to detect languages, and formats into dict.
+    If both html and txt is supplied, it will attempt to pick the best one.
 
     :param domain: domain of web page, used to weight languages.
     :param html: the html of the page.
@@ -154,9 +155,8 @@ def detect_language(html=None, txt=None, domain=None, http_lang=None):
     :param http_lang: HTTP language header
     :return: is_reliable, bytes_found, details
     """
-    is_reliable, bytes_found, details = False, 0, []
-    irh, bfh, dth = False, 0, []
-    irt, bft, dtt = False, 0, []
+    irh, bfh, dth = False, 0, []  # HTML result
+    irt, bft, dtt = False, 0, []  # Text result
 
     # Sometimes the cld2 html parser gives different results than BeautifulSoup
     # The cld2 html result is slightly preferred due to more in-depth analysis
@@ -191,10 +191,10 @@ def detect_language(html=None, txt=None, domain=None, http_lang=None):
         is_reliable, bytes_found, details = irh, bfh, dth
 
     if not details:
-        details = [("Unknown", "un", 0, 0)] * 3
+        details = [("Unknown", "un", 0, 0)] * 3  # Fill missing values to ensure size
 
     details = {str(i): {"language_name": ln, "language_code": lc, "percent": p, "score": s} for i, (ln, lc, p, s) in
-               enumerate(details)}
+               enumerate(details)}  # Dict instead of string for constant size
 
     resp = {"is_reliable": is_reliable, "text_bytes_found": bytes_found, "details": details}
 
@@ -216,7 +216,7 @@ def norwegian_score(is_reliable, details):
     for d in details.values():
         lang, code, percent, score = d["language_name"], d["language_code"], d["percent"], d["score"]
         if code in ["no", "nn"] and percent > 1:
-            # Due to always rounding up we sometimes get 1% where it really is closer to 0%
+            # Due to rounding up we sometimes get 1% where it really is closer to 0%
             p += percent
             s += score * percent
     return p, reliability * s / (p or 1)
@@ -264,17 +264,19 @@ def place_tag(t: Tag):
     # https://support.google.com/webmasters/answer/189077?hl=en
     rel = t.get("rel", "")
     hreflang = t.get("hreflang", "")
-    if t.name == "link" and "alternate" in rel and pattern_no_html_lang.search(hreflang):
+    pat = re.compile("alternat(e|ive)")
+    if t.name == "link" and pattern_no_html_lang.search(hreflang) and any(pat.search(r) for r in rel):
         return HREF_HREFLANG_REL
+
+    # Full matches Norway regex in text with repetitions
+    pat = re.compile(f"^(\\W*({norway_names}|no|bokmål|nynorsk))+\\W*$", re.I)
+    title = t.get("title", "")
+    if t.name == "a" and (pat.search(t.get_text(separator=" ")) or pat.search(t.get("title", ""))):
+        return HREF_NORWAY_FULL
 
     # Other hreflang links
     if pattern_no_html_lang.search(hreflang):
         return HREF_HREFLANG
-
-    # Full matches Norway regex in text with repetitions
-    pat = re.compile(f"^(\\W*({norway_names}|no|bokmål|nynorsk))+\\W*$", re.I)
-    if t.name == "a" and pat.search(t.get_text(separator=" ")):
-        return HREF_NORWAY_FULL
 
     # Matches Norwegian lang tag
     lang = t.get("lang", "")
@@ -282,11 +284,11 @@ def place_tag(t: Tag):
         return HREF_LANG
 
     # Matches Norway regex in text
-    if t.name == "a" and pattern_norway.search(t.get_text(separator=" ")):
+    if t.name == "a" and (pattern_norway.search(t.get_text(separator=" ")) or pattern_norway.search(title)):
         return HREF_NORWAY_PARTIAL
 
     # Matches Norway regex in link
-    pat = re.compile(f"{norway_names}|no|bokmål|nynorsk")
+    pat = re.compile(f"{norway_names}|({ensure_start}no{ensure_end})|bokmål|nynorsk")
     hr = t.get("href", "")
     if t.name == "a" and pat.search(hr):
         return HREF_NORWAY_LINK
@@ -313,7 +315,6 @@ class WebPage:
         self.redirect_url = redirect_url
         self.raw_html = raw_html
         self.no_version = no_version
-        # Replace falsy values with strings for embedding projector compatibility
         self.ip = ip
         self.geo_loc = geo_loc
         self.content_language = content_language
@@ -520,40 +521,59 @@ class WebPage:
         schemes_links = norwegian_links or self.find_norwegian_links()
 
         for scheme in SCHEMES:
-            if scheme != NO_MATCH:
+            # Since ALREADY_NO is uninteresting and quite trivial we ignore it to get something more meaningful
+            if scheme != NO_MATCH and scheme != ALREADY_NO:
                 # Reverse sorting puts links starting with "/" at the end
                 links = sorted(schemes_links[scheme], reverse=True)
+                queue = None  # Queue urls that may not be immediately picked but should be tried later
                 for link in links:
                     if link.startswith("/"):
                         parsed = urlparse(self.redirect_url)
                         new_url = urlunparse((parsed.scheme, parsed.netloc, link, None, None, None))
-                        scheme = "/" + scheme
+                        sch = "/" + scheme
                     else:
+                        sch = scheme
                         new_url = link
 
-                    ignore_scheme = scheme in [HREF_HREFLANG_REL, HREF_HREFLANG]  # Always give valid no
-                    if not ignore_scheme and (new_url == self.original_url or new_url == self.redirect_url):
-                        continue
+                    if new_url == self.original_url or new_url == self.redirect_url:
+                        queue = sch
+                    else:
+                        res = try_url(new_url)
+                        if res:
+                            return {"url": res[1], "scheme": sch, "ip_match": res[0]}
+                if queue:
+                    return {"url": self.redirect_url, "scheme": queue, "ip_match": 4}
 
-                    res = try_url(new_url)
-                    if res:
-                        if ignore_scheme or res[1] != self.original_url and res[1] != self.redirect_url:
-                            return {"url": res[1], "scheme": scheme, "ip_match": res[0]}
+        if schemes_links[ALREADY_NO]:
+            return {"url": self.redirect_url, "scheme": ALREADY_NO, "ip_match": 4}
 
         return {"url": None, "scheme": NO_MATCH, "ip_match": 0}
 
 
 # Some simple assertions to make sure it's working correctly
+
+val = WebPage.from_url("http://www.dnva.no").values()
+assert val["language"]["text_bytes_found"] > 0
+assert val["content_language"] == "nb"
+assert val["domain"] == "no"
+assert val["geo"] == "NL"
+assert val["html_lang"] == "nb"
+assert val["norvegica_score"] > 0.5
+assert val["norwegian_version"]["scheme"] == "/" + HREF_HREFLANG
+assert all(v["total"] > 0 for k, v in val["regex"].items())
+
 assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
-assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["url"]
-assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["url"]
-assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["scheme"] == REPLACE
+# assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
 assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
-assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-assert WebPage.from_url("https://bodilmunch.blogspot.com/").values()["norwegian_version"][
-           "scheme"] == HREF_NORWAY_PARTIAL
+# assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("https://bodilmunch.blogspot.no/").values()["norwegian_version"]["scheme"] == REPLACE
 assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
 assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
 assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
 assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
 assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL
+assert WebPage.from_url("http://www.stenastal.no").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+assert WebPage.from_url("https://katalog.uu.se").values()["norwegian_version"]["scheme"] == NO_MATCH
+assert WebPage.from_url("https://www.nordicnetcare.dk/").values()["norwegian_version"]["scheme"] == "/" + HREF_LANG

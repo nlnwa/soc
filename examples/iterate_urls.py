@@ -33,11 +33,11 @@ if __name__ == '__main__':
 
     urls = []
 
-    files = os.listdir("res/oos_liste_03.01.19")
+    files = os.listdir("../res/oos_liste_03.01.19")
 
     for file in files:
         if not re.match(r"uri_(\W|_)", file):
-            f = open(f"res/oos_liste_03.01.19/{file}")
+            f = open(f"../res/oos_liste_03.01.19/{file}")
             urls += [url.strip() for url in f]
 
     random.shuffle(urls)

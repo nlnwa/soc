@@ -3,8 +3,9 @@ import re
 import socket
 from collections import Counter
 from http import HTTPStatus
-from http.client import IncompleteRead
+from http.client import IncompleteRead, HTTPResponse
 from ssl import CertificateError
+from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen, Request
@@ -84,42 +85,42 @@ headers = {
 
 
 # Methods
-def has_name(txt):
+def has_name(txt: str) -> Counter:
     names = pattern_names.findall(txt)
     return Counter(n[1] for n in names)
 
 
-def has_postal(txt):
+def has_postal(txt: str) -> Counter:
     postals = pattern_postal.findall(txt)
     return Counter(postals)
 
 
-def has_phone_number(txt):
+def has_phone_number(txt: str) -> Counter:
     phones = pattern_phone.findall(txt)
     return Counter(p[1].replace(" ", "") for p in phones)
 
 
-def has_norway(txt):
+def has_norway(txt: str) -> Counter:
     nor = pattern_norway.findall(txt)
     return Counter(n[1] for n in nor)
 
 
-def has_county(txt):
+def has_county(txt: str) -> Counter:
     cou = pattern_counties.findall(txt)
     return Counter(c[1] for c in cou)
 
 
-def has_kroner(txt):
+def has_kroner(txt: str) -> Counter:
     kr = pattern_kroner.findall(txt)
     return Counter(k[0] for k in kr)
 
 
-def has_email(txt):
+def has_email(txt: str) -> Counter:
     mail = pattern_email.findall(txt)
     return Counter(m for m in mail if m.endswith(".no"))
 
 
-def get_text(connection_or_html):
+def get_text(connection_or_html) -> str:
     """
     Uses BeautifulSoup to get text from HTML
     """
@@ -134,17 +135,17 @@ def get_text(connection_or_html):
     return txt
 
 
-def geo(connection):
+def geo(ip: str) -> str:
     """
     Attempts to find geolocation of connection from IP.
     """
-    ip = get_ip(connection)
     response = reader.country(ip)
 
     return response.country.iso_code
 
 
-def detect_language(html=None, txt=None, domain=None, http_lang=None):
+def detect_language(html: Optional[str] = None, txt: Optional[str] = None,
+                    domain: Optional[str] = None, http_lang: Optional[str] = None) -> dict:
     """
     Uses cld2 to detect languages, and formats into dict.
     If both html and txt is supplied, it will attempt to pick the best one.
@@ -162,7 +163,8 @@ def detect_language(html=None, txt=None, domain=None, http_lang=None):
     # The cld2 html result is slightly preferred due to more in-depth analysis
     if html:
         try:
-            irh, bfh, dth = pycld2.detect(html, isPlainText=False, hintTopLevelDomain=domain, hintLanguageHTTPHeaders=http_lang)
+            irh, bfh, dth = pycld2.detect(html, isPlainText=False, hintTopLevelDomain=domain,
+                                          hintLanguageHTTPHeaders=http_lang)
         except pycld2.error:
             pass
 
@@ -172,7 +174,8 @@ def detect_language(html=None, txt=None, domain=None, http_lang=None):
         else:
             try:
                 txt = re.sub(r"\W+", " ", txt)  # To prevent invalid characters
-                irt, bft, dtt = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain, hintLanguageHTTPHeaders=http_lang)
+                irt, bft, dtt = pycld2.detect(txt, isPlainText=True, hintTopLevelDomain=domain,
+                                              hintLanguageHTTPHeaders=http_lang)
             except pycld2.error:
                 pass
 
@@ -201,7 +204,7 @@ def detect_language(html=None, txt=None, domain=None, http_lang=None):
     return resp
 
 
-def norwegian_score(is_reliable, details):
+def norwegian_score(is_reliable: bool, details: dict) -> (int, float):
     """
     Uses cld2 to find Norwegian.
 
@@ -222,7 +225,7 @@ def norwegian_score(is_reliable, details):
     return p, reliability * s / (p or 1)
 
 
-def get_ip(connection):
+def get_ip(connection: HTTPResponse) -> str:
     """
     Finds IP of connection.
     """
@@ -230,7 +233,7 @@ def get_ip(connection):
     return ip
 
 
-def get_domain(url):
+def get_domain(url: str) -> str:
     """
     Gets domain from URL. E.g. "https://stackoverflow.com/" -> "com"
     """
@@ -240,7 +243,7 @@ def get_domain(url):
     return url_parts[-1]
 
 
-def normalize(x, midpoint, lim=1.0):
+def normalize(x: float, midpoint: float, lim: float = 1.0) -> float:
     """
     Normalizes such that
     x == 0 -> 0,
@@ -252,10 +255,13 @@ def normalize(x, midpoint, lim=1.0):
     :param lim: the maximal value of the function.
     :return: the normalized result.
     """
-    return lim * (1 - 0.5 ** (x / midpoint))
+    return lim * (1 - 0.5 ** (x / midpoint)) if x > 0 else 0.0
 
 
-def place_tag(t: Tag):
+def place_tag(t: Tag) -> str:
+    """
+    Analyzes a HTML tag and returns the associated scheme.
+    """
     if not t.get("href"):
         return NO_MATCH
 
@@ -301,7 +307,8 @@ class WebPage:
     Simple class to handle logic for web pages.
     """
 
-    def __init__(self, orig_url, redirect_url, raw_html, ip, geo_loc=None, content_language=None, no_version=None):
+    def __init__(self, orig_url: str, redirect_url: str, raw_html: str, ip: str, geo_loc: Optional[str] = None,
+                 content_language: Optional[str] = None, no_version: Optional[str] = None):
         """
         :param orig_url: the original URL.
         :param redirect_url: the new URL after being redirected.
@@ -320,7 +327,7 @@ class WebPage:
         self.content_language = content_language
 
     @staticmethod
-    def from_url(url):
+    def from_url(url: str):
         """
         Creates a WebPage object from a URL
         :param url: URL to create object from.
@@ -330,16 +337,16 @@ class WebPage:
         conn = urlopen(req, timeout=30)
         content_language = conn.info()["content-language"]
         html = str(conn.read(), "utf-8", errors="replace")
-        geoloc = geo(conn)
         redir = conn.geturl()
         ip = get_ip(conn)
+        geoloc = geo(ip)
 
         del conn  # Disconnect
         return WebPage(orig_url=url, redirect_url=redir, raw_html=html, geo_loc=geoloc, ip=ip,
                        content_language=content_language)
 
     @staticmethod
-    def norvegica_score(resp):
+    def norvegica_score(resp: dict) -> float:
         """
         Gives a score of how Norwegian a page is, normalized between 0 and 1
         """
@@ -357,20 +364,22 @@ class WebPage:
         # - Share some common names
         mul = 1
         if pattern_kr_dom.fullmatch(resp["domain"]) \
-                or pattern_no_html_lang.fullmatch(resp["geo"]) \
+                or pattern_kr_dom.fullmatch(resp["geo"]) \
                 or pattern_kr_lan.fullmatch(resp["language"]["details"]["0"]["language_code"]):
             mul = 0.1
         kroner = normalize(reg["kroner"]["total"], 1, 0.1 * mul)
         names = normalize(reg["name"]["unique"], 1, 0.5 * mul)
 
         geo_score = 0.25 if resp["geo"] == "NO" else 0.0
+        cl_score = 0.25 if pattern_no_html_lang.search(resp["content_language"] or "") else 0.0
+        hl_score = 0.25 if pattern_no_html_lang.search(resp["html_lang"] or "") else 0.0
 
-        score = norwegian + postal + phone + county + names + norway + mail + kroner + geo_score
+        score = norwegian + postal + phone + county + names + norway + mail + kroner + geo_score + cl_score + hl_score
         score = normalize(score, 1.0)
 
         return score
 
-    def values(self):
+    def values(self) -> dict:
         """
         Retrieves relevant information from the page.
         """
@@ -446,7 +455,7 @@ class WebPage:
 
         return response
 
-    def find_norwegian_links(self):
+    def find_norwegian_links(self) -> dict:
         """
         Finds possible candidates for a Norwegian version of the page.
         :return: a dict with a list of urls for each scheme
@@ -482,7 +491,7 @@ class WebPage:
 
         return schemes_links
 
-    def norwegian_version(self, norwegian_links=None) -> dict:
+    def norwegian_version(self, norwegian_links: Optional[dict] = None) -> dict:
         """
         Attempts to find a Norwegian version of a page, first by looking for links that match the Norway regex,
         and afterwards by simply replacing the domain with .no,
@@ -525,7 +534,7 @@ class WebPage:
             if scheme != NO_MATCH and scheme != ALREADY_NO:
                 # Reverse sorting puts links starting with "/" at the end
                 links = sorted(schemes_links[scheme], reverse=True)
-                queue = None  # Queue urls that may not be immediately picked but should be tried later
+                queue = None  # Queue is for matches where the url is the same as the original result
                 for link in links:
                     if link.startswith("/"):
                         parsed = urlparse(self.redirect_url)
@@ -551,29 +560,28 @@ class WebPage:
 
 
 # Some simple assertions to make sure it's working correctly
-
-val = WebPage.from_url("http://www.dnva.no").values()
-assert val["language"]["text_bytes_found"] > 0
-assert val["content_language"] == "nb"
-assert val["domain"] == "no"
-assert val["geo"] == "NL"
-assert val["html_lang"] == "nb"
-assert val["norvegica_score"] > 0.5
-assert val["norwegian_version"]["scheme"] == "/" + HREF_HREFLANG
-assert all(v["total"] > 0 for k, v in val["regex"].items())
-
-assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
-assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["scheme"] == REPLACE
-# assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
-# assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-assert WebPage.from_url("https://bodilmunch.blogspot.no/").values()["norwegian_version"]["scheme"] == REPLACE
-assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
-assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
-assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL
-assert WebPage.from_url("http://www.stenastal.no").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
-assert WebPage.from_url("https://katalog.uu.se").values()["norwegian_version"]["scheme"] == NO_MATCH
-assert WebPage.from_url("https://www.nordicnetcare.dk/").values()["norwegian_version"]["scheme"] == "/" + HREF_LANG
+# val = WebPage.from_url("http://www.dnva.no").values()
+# assert val["language"]["text_bytes_found"] > 0
+# assert val["content_language"] == "nb"
+# assert val["domain"] == "no"
+# assert val["geo"] == "NL"
+# assert val["html_lang"] == "nb"
+# assert val["norvegica_score"] > 0.5
+# assert val["norwegian_version"]["scheme"] == "/" + HREF_HREFLANG
+# assert all(v["total"] > 0 for k, v in val["regex"].items())
+#
+# assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
+# assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["scheme"] == REPLACE
+# # assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# # assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
+# # assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("https://bodilmunch.blogspot.no/").values()["norwegian_version"]["scheme"] == REPLACE
+# assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
+# assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+# assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL
+# assert WebPage.from_url("http://www.stenastal.no").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+# assert WebPage.from_url("https://katalog.uu.se").values()["norwegian_version"]["scheme"] == NO_MATCH
+# assert WebPage.from_url("https://www.nordicnetcare.dk/").values()["norwegian_version"]["scheme"] == "/" + HREF_LANG

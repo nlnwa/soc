@@ -3,7 +3,7 @@ Repository for summer job work at The National Library of Norway 2019
 
 The repository mostly contains code for OOS (out-of-scope) handling, with a few adjacent tasks (Doc2Vec, language detection, etc...)
 
-Additional files for language detection using machine learning are available [here](https://drive.google.com/open?id=1Om7PGu_auqUMncnj1tIikawcy_9tnytj). These files are not used, but exist for later reference if needed.
+Example files for doc2vec and language detection using machine learning are available in the `examples` folder.
 
 ## Usage
 The main file is server.py, which when run provides two services:
@@ -30,12 +30,12 @@ Descriptions of the fields returned by the "/url" service. The "/language" servi
     - `scheme`: Method of discovery, can be one of (in order of estimated strength):
         - `already_no`: The website's domain is already .no, this is quite uninteresting and is therefore returned only if no other matches are found.
         - `href-hreflang-rel`: Link that follows [the format recommended by Google](https://support.google.com/webmasters/answer/189077?hl=en) to specify alternate language versions
-        - `href-hreflang`: Other link with hreflang tag.
         - `href-norway-full`: Link that contains text with only "Norway"/"Norwegian" in any language
         - `replace`: Found by replacing domain with .no
+        - `href-hreflang`: Other link with hreflang tag.
         - `href-norway-partial`: Link that contains text with "Norway"/"Norwegian" in any language, but also other text
         - `href-lang`: Link with lang tag
-        - `href-norway-lang`: Link where URL contains "Norway"/"Norwegian" in any language
+        - `href-norway-link`: Link where URL contains "Norway"/"Norwegian" in any language
         - `no_match`: No Norwegian version was found
 - `language`: Language information produced by cld2. Apart from `norwegian_score` this is also the result from the "/language" service
     - `norwegian_score`: A calculated score of how Norwegian the text is on a scale from 0 to 1
@@ -82,7 +82,7 @@ Output:
     "content_language": null,
     "norwegian_version": {
         "url": "https://www.nb.no/",
-        "scheme": "already_no",
+        "scheme": "href-hreflang-rel",
         "ip_match": 4
     },
     "language": {
@@ -140,7 +140,7 @@ Output:
             "total": 1
         }
     },
-    "norvegica_score": 0.9558058238157995,
+    "norvegica_score": 0.9628372756716147,
     "text": "Gå til innhold Gå til menyen Søk i nettbiblioteket Søk i redaksjonelt innhold Hjem Om samlingen..."
 }
 ```

@@ -16,6 +16,7 @@ async def handle_language_detection(request: Request):
         try:
             wp = WebPage.from_url(data["url"])
             domain = get_domain(wp.redirect_url)
+            http_lang = wp.content_language
             html = wp.raw_html
             text = get_text(wp.raw_html)
         except ValueError:
@@ -24,10 +25,14 @@ async def handle_language_detection(request: Request):
             return web.HTTPBadRequest(reason="Name or service not known.")
     else:
         domain = data["domain"] if "domain" in data else None
+        http_lang = data["http_lang"] if "http_lang" in data else None
         html = data["html"] if "html" in data else None
         text = data["text"] if "text" in data else None
 
-    resp = detect_language(html=html, txt=text, domain=domain)
+    if not html and not text:
+        return web.HTTPUnprocessableEntity(reason="Unable to make prediction, missing 'url', 'text' or 'html'")
+
+    resp = detect_language(html=html, txt=text, domain=domain, http_lang=http_lang)
 
     return web.json_response(data=resp)
 
@@ -35,6 +40,7 @@ async def handle_language_detection(request: Request):
 @routes.post("/url")
 async def handle_url_check(request: Request):
     data = await request.post()
+    print(data)
     if "url" not in data:
         return web.HTTPUnprocessableEntity(reason="'url' field not present in request.")
 

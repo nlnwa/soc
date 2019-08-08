@@ -560,28 +560,28 @@ class WebPage:
 
 
 # Some simple assertions to make sure it's working correctly
-# val = WebPage.from_url("http://www.dnva.no").values()
-# assert val["language"]["text_bytes_found"] > 0
-# assert val["content_language"] == "nb"
-# assert val["domain"] == "no"
-# assert val["geo"] == "NL"
-# assert val["html_lang"] == "nb"
-# assert val["norvegica_score"] > 0.5
-# assert val["norwegian_version"]["scheme"] == "/" + HREF_HREFLANG
-# assert all(v["total"] > 0 for k, v in val["regex"].items())
-#
-# assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
-# assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["scheme"] == REPLACE
-# # assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# # assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
-# # assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# assert WebPage.from_url("https://bodilmunch.blogspot.no/").values()["norwegian_version"]["scheme"] == REPLACE
-# assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
-# assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
-# assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
-# assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL
-# assert WebPage.from_url("http://www.stenastal.no").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
-# assert WebPage.from_url("https://katalog.uu.se").values()["norwegian_version"]["scheme"] == NO_MATCH
-# assert WebPage.from_url("https://www.nordicnetcare.dk/").values()["norwegian_version"]["scheme"] == "/" + HREF_LANG
+val = WebPage.from_url("http://www.dnva.no").values()
+assert val["language"]["text_bytes_found"] > 0
+assert val["content_language"] == "nb"
+assert val["domain"] == "no"
+assert val["geo"] == "NL"
+assert val["html_lang"] == "nb"
+assert val["norvegica_score"] > 0.5
+assert val["norwegian_version"]["scheme"] == "/" + HREF_HREFLANG
+assert all(v["total"] > 0 for k, v in val["regex"].items())
+
+assert WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"] == 1
+assert WebPage.from_url("http://www.teknamotor.sk").values()["norwegian_version"]["scheme"] == REPLACE
+# assert WebPage.from_url("https://www.infosoft.se").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+# assert WebPage.from_url("https://simplisoftware.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"] > 0
+# assert WebPage.from_url("https://www.dedicare.se/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("https://bodilmunch.blogspot.no/").values()["norwegian_version"]["scheme"] == REPLACE
+assert WebPage.from_url("https://blog.e-hoi.de").values()["norwegian_version"]["scheme"] == HREF_NORWAY_PARTIAL
+assert WebPage.from_url("https://shop.nets.eu/").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+assert WebPage.from_url("https://herbalifeskin.it/").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("https://www.viessmann.ae").values()["norwegian_version"]["scheme"] == HREF_NORWAY_FULL
+assert WebPage.from_url("http://www.mammut.ch").values()["norwegian_version"]["scheme"] == HREF_HREFLANG_REL
+assert WebPage.from_url("http://www.stenastal.no").values()["norwegian_version"]["scheme"] == f"/{HREF_NORWAY_FULL}"
+assert WebPage.from_url("https://katalog.uu.se").values()["norwegian_version"]["scheme"] == NO_MATCH
+assert WebPage.from_url("https://www.nordicnetcare.dk/").values()["norwegian_version"]["scheme"] == "/" + HREF_LANG

@@ -10,8 +10,8 @@ import tensorflow_datasets.public_api as tfds
 if not os.path.isfile("nonnwiki-TokenTextEncoderL.tokens"):
     print("Loading wikis...")
 
-    no_wiki = open("../res/wiki/nowiki.txt")
-    nn_wiki = open("../res/wiki/nnwiki.txt")
+    no_wiki = open("res/wiki/nowiki.txt")
+    nn_wiki = open("res/wiki/nnwiki.txt")
 
     it = (text for text in chain(no_wiki, nn_wiki) if len(text) > 64)
 

@@ -467,24 +467,24 @@ class WebPage:
 
         schemes_links = {k: [] for k in SCHEMES}
 
+        # Either already_no or replace, not both.
         if url_parts[-1] == "no":
             schemes_links[ALREADY_NO].append(self.redirect_url)
-            # return {"url": url, "scheme": ALREADY_NO, "ip_match": 4}  # No point in testing as it's already Norwegian
+        else:
+            new_url_parts = list(url_parts)
+            if url_parts[-2] in {"com", "co"}:  # E.g. co.uk -> no instead of co.no
+                del new_url_parts[-1]
+
+            new_url_parts[-1] = "no"
+
+            new_base_url = ".".join(new_url_parts)
+
+            new_url = urlunparse(
+                (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+            schemes_links[REPLACE].append(new_url)
 
         soup = BeautifulSoup(self.raw_html, "html.parser")
-
-        new_url_parts = list(url_parts)
-        if url_parts[-2] in {"com", "co"}:  # E.g. co.uk -> no instead of co.no
-            del new_url_parts[-1]
-
-        new_url_parts[-1] = "no"
-
-        new_base_url = ".".join(new_url_parts)
-
-        new_url = urlunparse(
-            (parsed.scheme, new_base_url, parsed.path, parsed.params, parsed.query, parsed.fragment))
-
-        schemes_links[REPLACE].append(new_url)
 
         for tag in soup.find_all(["a", "link"]):
             schemes_links[place_tag(tag)].append(tag.get("href"))
@@ -493,12 +493,8 @@ class WebPage:
 
     def norwegian_version(self, norwegian_links: Optional[dict] = None) -> dict:
         """
-        Attempts to find a Norwegian version of a page, first by looking for links that match the Norway regex,
-        and afterwards by simply replacing the domain with .no,
+        Goes through candidates for Norwegian versions, and selects the best one that actually exists.
 
-        Most of the time this will give an actual Norwegian version of the page, though some false positives may occur.
-        However, false positives will still return a valid Norwegian website,
-        even though it may not be connected to the input page.
         :return: a dict containing the scheme in which it was discovered,
                  the number of matching bytes, and the URL of the page.
         """

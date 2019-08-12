@@ -52,7 +52,7 @@ if __name__ == '__main__':
             print("Slept")
             try:
                 df = json_normalize(responses)
-                df.to_csv("uri_scores.csv", index=False)
+                df.to_csv("uri_scores_temp.csv", index=False)
                 print("CSV saved")
             except ValueError as e:
                 print(e)

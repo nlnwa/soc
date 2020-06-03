@@ -5,7 +5,8 @@ from time import sleep
 
 from pandas.io.json import json_normalize
 
-from souper import *
+from WebPage import WebPage
+from norvegica.souper import *
 
 # Iterates through OOS list and writes information to CSV
 if __name__ == '__main__':

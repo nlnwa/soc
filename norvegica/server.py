@@ -3,7 +3,8 @@ from urllib.error import URLError
 from aiohttp import web
 from aiohttp.web_request import Request
 
-from souper import WebPage, detect_language, get_text, get_domain
+from souper import detect_language, get_text, get_domain
+from WebPage import WebPage
 
 routes = web.RouteTableDef()
 
@@ -54,6 +55,14 @@ async def handle_url_check(request: Request):
         return web.HTTPBadRequest(reason="Malformed url.")
     except URLError:
         return web.HTTPBadRequest(reason="Name or service not known.")
+
+
+@routes.post("/webpage")
+async def handle_webpage(request: Request):
+    data = await request.post()
+    wp = WebPage(**data)
+    return web.json_response(wp.values())
+
 
 app = web.Application()
 app.add_routes(routes)

@@ -1,8 +1,10 @@
 FROM python
 
-COPY . .
+COPY . /tmp/
 
-RUN pip install -r requirements.txt
+WORKDIR /tmp/
+
+RUN pip install -r /tmp/requirements.txt
 
 EXPOSE 8080
 

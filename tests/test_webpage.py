@@ -9,14 +9,14 @@ class TestWebPage(unittest.TestCase):
         # Some simple assertions to make sure it's working correctly
         val = WebPage.from_url("http://www.dnva.no").values()
         self.assertGreater(val["language"]["text_bytes_found"], 0)
-        self.assertEqual(val["content_language"], "nb")
-        self.assertEqual(val["domain"], "no")
-        self.assertEqual(val["geo"], "NL")
-        self.assertEqual(val["html_lang"], "nb")
+        self.assertEqual("nb", val["content_language"])
+        self.assertEqual("no", val["domain"])
+        self.assertEqual("NL", val["geo"])
+        self.assertEqual("nb", val["html_lang"])
         self.assertGreater(val["norvegica_score"], 0.5)
-        self.assertEqual(val["norwegian_version"]["scheme"], "/" + HREF_HREFLANG)
+        self.assertEqual("/" + HREF_HREFLANG, val["norwegian_version"]["scheme"])
         for k, v in val["regex"].items():
-            self.assertEqual(v["total"], 0)
+            self.assertEqual(0, v["total"])
 
     def test_norwegian_version(self):
         for url, scheme in [
@@ -29,9 +29,9 @@ class TestWebPage(unittest.TestCase):
             ("http://www.mammut.ch", HREF_HREFLANG_REL),
             ("http://www.stenastal.no", f"/{HREF_NORWAY_FULL}"),
             ("https://katalog.uu.se", NO_MATCH),
-            ("https://www.nordicnetcare.dk/", "/" + HREF_LANG)
+            ("https://www.nordicnetcare.dk/", REPLACE)
         ]:
-            self.assertEqual(WebPage.from_url(url).values()["norwegian_version"]["scheme"], scheme, msg=url)
+            self.assertEqual(scheme, WebPage.from_url(url).values()["norwegian_version"]["scheme"], msg=url)
 
     def test_detailed(self):
         self.assertEqual(WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"], 1)

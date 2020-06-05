@@ -212,6 +212,7 @@ def place_tag(t: Tag) -> str:
         return NO_MATCH
 
     # Schemes are ordered from presumed strongest to weakest
+
     # Method recommended by Google to specify alternate versions of page
     # https://support.google.com/webmasters/answer/189077?hl=en
     rel = t.get("rel", "")

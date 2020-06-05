@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: norvegica-pod
+  namespace: veidemann
+spec:
+  containers:
+    - name: test
+      image: test
+      imagePullPolicy: IfNotPresent
+

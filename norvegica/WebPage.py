@@ -30,7 +30,7 @@ class WebPage:
         self.raw_html = raw_html
         self.no_version = no_version
         self.ip = ip
-        self.geo_loc = geo_loc
+        self.geo_loc = geo_loc or ""
         self.content_language = content_language
 
     @staticmethod

@@ -5,18 +5,23 @@ from norvegica.WebPage import *
 
 class TestWebPage(unittest.TestCase):
 
-    def test_initial(self):
+    def test_nb(self):
+        val = WebPage.from_url("https://www.nb.no").values()
+        self.assertGreater(val["language"]["text_bytes_found"], 0)
+        self.assertEqual("no", val["domain"])
+        self.assertEqual("NO", val["geo"])
+        self.assertEqual("nb-NO", val["html_lang"])
+        self.assertGreater(val["language"]["norwegian_score"], 0.5)
+        self.assertEqual("href-hreflang-rel", val["norwegian_version"]["scheme"])
+        self.assertGreater(val["regex"]["county"]["unique"], 0)
+        self.assertGreater(val["norvegica_score"], 0.5)
+
+    def test_dnva(self):
         # Some simple assertions to make sure it's working correctly
         val = WebPage.from_url("http://www.dnva.no").values()
         self.assertGreater(val["language"]["text_bytes_found"], 0)
         self.assertEqual("nb", val["content_language"])
         self.assertEqual("no", val["domain"])
-        self.assertEqual("NL", val["geo"])
-        self.assertEqual("nb", val["html_lang"])
-        self.assertGreater(val["norvegica_score"], 0.5)
-        self.assertEqual("/" + HREF_HREFLANG, val["norwegian_version"]["scheme"])
-        for k, v in val["regex"].items():
-            self.assertEqual(0, v["total"])
 
     def test_norwegian_version(self):
         for url, scheme in [
@@ -33,9 +38,11 @@ class TestWebPage(unittest.TestCase):
         ]:
             self.assertEqual(scheme, WebPage.from_url(url).values()["norwegian_version"]["scheme"], msg=url)
 
-    def test_detailed(self):
-        self.assertEqual(WebPage.from_url("http://www.destinasjonroros.no").values()["regex"]["phone"]["total"], 1)
-        self.assertGreater(WebPage.from_url("http://hespe.blogspot.com").values()["language"]["text_bytes_found"], 0)
+    def test_language_detection(self):
+        wp = WebPage("https://nb.no", "https://www.nb.no",
+                     "<h1>Dette er en norsk tekst for testing av språkdeteksjon</h1>",
+                     "151.101.85.140")
+        self.assertEqual("no", wp.values()["language"]["details"]["0"]["language_code"])
 
 
 if __name__ == '__main__':

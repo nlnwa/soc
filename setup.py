@@ -4,7 +4,7 @@ with open("README.md") as f:
     readme = f.read()
 
 setup(
-    name="soc",
+    name="veidemann_soc",
     version="0.1.0",
     description="Summer of code",
     long_description=readme,

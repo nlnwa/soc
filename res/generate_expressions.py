@@ -26,7 +26,7 @@ rdr = csv.reader(source, delimiter="\t")
 postal = []
 
 for row in rdr:
-    postal.append(row[0] + " " + row[1])
+    postal.append(row[0] + ",? " + row[1])
 
 postal = "|".join(postal)
 
@@ -61,7 +61,8 @@ counties = r"akershus|aust.?agder|buskerud|finnmark|hedmark|hordaland|møre|roms
            r"rogaland|sogn|fjordane|telemark|troms|trøndelag|vest.?agder|vestfold|østfold"
 
 phone = r"([^\d]|^)((\(?(\+|00)?47\)?)(\W?\d){8})([^\d]|$)"
-kroner = r"(\d+ ?(kr(oner)?|NOK))"
+kroner = r"(\d{1,3}([.,]\d{3})+|\d+)([.,](\d{2}|\-))? ?(kr(oner)?|NOK)" \
+         r"|(kr(oner)?|NOK) ?(\d{1,3}([.,]\d{3})+|\d+)([.,](\d{2}|\-))?"
 
 email = r"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|\"(?:[" \
         r"\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")@(" \

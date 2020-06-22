@@ -48,7 +48,7 @@ async def handle_url_check(request: Request):
     url = data["url"]
     try:
         wp = WebPage.from_url(url)
-        resp = wp.values()
+        resp = wp.extra_info
 
         return web.json_response(data=resp)
     except ValueError:
@@ -61,7 +61,7 @@ async def handle_url_check(request: Request):
 async def handle_webpage(request: Request):
     data = await request.post()
     wp = WebPage(**data)
-    return web.json_response(wp.values())
+    return web.json_response(wp.extra_info)
 
 
 app = web.Application()

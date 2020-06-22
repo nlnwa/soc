@@ -1,25 +1,29 @@
 import os
 import random
+import time
 from concurrent.futures import ThreadPoolExecutor
+from http.client import IncompleteRead
+from ssl import CertificateError
 from time import sleep
+from urllib.error import HTTPError, URLError
 
-from pandas.io.json import json_normalize
+import pandas as pd
 
-from WebPage import WebPage
+from norvegica.WebPage import WebPage
 from norvegica.souper import *
 
-# Iterates through OOS list and writes information to CSV
-if __name__ == '__main__':
+
+def visit_urls(urls, fn, repeat=1, delay=1000):
     responses = []
 
-    def visit_url(url, save=True):
+    def visit_url(url, save=False):
         """
         Visits URL and adds to dict, returns WebPageValues
         """
         try:
             wp = WebPage.from_url(url)
 
-            val = wp.values()
+            val = wp.extra_info
 
             # pprint(val)
 
@@ -32,33 +36,61 @@ if __name__ == '__main__':
             print(url, err)
             pass
 
-    urls = []
+    print(len(urls))
+    t0 = time.time()
 
-    files = os.listdir("res/oos_liste_03.01.19")
+    def save(fn):
+        try:
+            df = pd.json_normalize(responses)
+            cols = list(df.columns)
+            cols.remove("text")
+            df = df[cols + ["text"]]
+            df.to_csv(fn, index=False)
+            t1 = time.time()
+            print(f"CSV saved (t={t1 - t0:.1f},l={len(responses)})")
+        except ValueError as e:
+            print(e)
+
+    target = time.time()
+    for n in range(repeat):
+        print(n)
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            for res in pool.map(visit_url, urls, timeout=delay):
+                if res:
+                    responses.append(res)
+            save(f"{fn}_temp.csv")
+            target += delay
+            remaining = target - time.time() - 5
+            print(f"Sleeping for {remaining:.1f} seconds")
+            sleep(remaining)
+            print("Slept")
+            while time.time() < target:
+                pass
+
+    # in case it actually finishes
+    save(f"{fn}.csv")
+
+
+def get_oos_urls():
+    urls = set()
+
+    files = os.listdir("res/oos")
 
     for file in files:
         if not re.match(r"uri_(\W|_)", file):
-            f = open(f"res/oos_liste_03.01.19/{file}")
-            urls += [url.strip() for url in f]
+            f = open(f"res/oos/{file}")
+            for url in f:
+                urls.add(url.strip())
+    return urls
 
+
+def get_news_urls():
+    return [s.strip() for s in open("misc/news.txt")]
+
+
+# Iterates through OOS list and writes information to CSV
+if __name__ == '__main__':
+    urls = list(get_news_urls())
     random.shuffle(urls)
-
-    print(len(urls))
-
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        pool.map(visit_url, urls, timeout=120)
-        while not pool._work_queue.empty():
-            print("Sleeping")
-            sleep(1000)
-            print("Slept")
-            try:
-                df = json_normalize(responses)
-                df.to_csv("uri_scores_temp.csv", index=False)
-                print("CSV saved")
-            except ValueError as e:
-                print(e)
-        pool.shutdown(False)
-
-    # in case it actually finishes
-    df = json_normalize(responses)
-    df.to_csv("uri_scores.csv", index=False)
+    sleep(2100)
+    visit_urls(urls, "news2", 720, 3600)

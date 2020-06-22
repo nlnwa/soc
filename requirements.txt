@@ -3,3 +3,6 @@ aiohttp~=3.6.2
 pycld2~=0.41
 beautifulsoup4~=4.9.1
 geoip2~=3.0.0
+pandas~=1.0.4
+python-dateutil~=2.8.1
+warcio~=1.7.3

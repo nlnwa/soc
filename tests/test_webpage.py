@@ -6,7 +6,7 @@ from norvegica.WebPage import *
 class TestWebPage(unittest.TestCase):
 
     def test_nb(self):
-        val = WebPage.from_url("https://www.nb.no").values()
+        val = WebPage.from_url("https://www.nb.no").extra_info
         self.assertGreater(val["language"]["text_bytes_found"], 0)
         self.assertEqual("no", val["domain"])
         self.assertEqual("NO", val["geo"])
@@ -18,7 +18,7 @@ class TestWebPage(unittest.TestCase):
 
     def test_dnva(self):
         # Some simple assertions to make sure it's working correctly
-        val = WebPage.from_url("http://www.dnva.no").values()
+        val = WebPage.from_url("http://www.dnva.no").extra_info
         self.assertGreater(val["language"]["text_bytes_found"], 0)
         self.assertEqual("nb", val["content_language"])
         self.assertEqual("no", val["domain"])
@@ -36,13 +36,16 @@ class TestWebPage(unittest.TestCase):
             ("https://katalog.uu.se", NO_MATCH),
             ("https://www.nordicnetcare.dk/", REPLACE)
         ]:
-            self.assertEqual(scheme, WebPage.from_url(url).values()["norwegian_version"]["scheme"], msg=url)
+            self.assertEqual(scheme, WebPage.from_url(url).extra_info["norwegian_version"]["scheme"], msg=url)
 
     def test_language_detection(self):
         wp = WebPage("https://nb.no", "https://www.nb.no",
                      "<h1>Dette er en norsk tekst for testing av språkdeteksjon</h1>",
                      "151.101.85.140")
-        self.assertEqual("no", wp.values()["language"]["details"]["0"]["language_code"])
+        self.assertEqual("no", wp.extra_info["language"]["details"]["0"]["language_code"])
+
+    def test_kroner(self):
+        self.assertGreater(WebPage.from_url("http://www.mammut.com").extra_info["regex"]["kroner"]["total"], 0)
 
 
 if __name__ == '__main__':

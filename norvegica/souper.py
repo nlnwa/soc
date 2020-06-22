@@ -25,7 +25,7 @@ SCHEMES = ALREADY_NO, HREF_HREFLANG_REL, HREF_NORWAY_FULL, HREF_HREFLANG, HREF_L
 reader = Reader('res/GeoIP2-Country.mmdb')
 
 
-headers = {
+HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/70.0.3538.77 Safari/537.36"}
 
@@ -75,10 +75,12 @@ def get_text(connection_or_html) -> str:
 
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
 
-    txt = soup.get_text(separator=" ").strip()
-    txt = re.sub(r"\s+", " ", txt)
+    txt = soup.get_text(separator="\t\t")
+    split = txt.split("\t\t")
+    split = [re.sub(r"\s+", " ", s.strip()) for s in split]
+    split = [s for s in split if s]
 
-    return txt
+    return "\t".join(split)
 
 
 def geo(ip: str) -> str:

@@ -9,6 +9,7 @@ class TestPatterns(unittest.TestCase):
         self.assertTrue(pattern_names.fullmatch("Jan Hansen"))
 
     def test_postal(self):
+        self.assertTrue(pattern_postal.fullmatch("0255, Oslo"))
         self.assertTrue(pattern_postal.fullmatch("8624 Mo i Rana"))
 
     def test_phone(self):
@@ -21,6 +22,8 @@ class TestPatterns(unittest.TestCase):
         self.assertTrue(pattern_counties.fullmatch("Nordland"))
 
     def test_kroner(self):
+        self.assertTrue(pattern_kroner.fullmatch("kr 1,000.000,000,-"))
+        self.assertTrue(pattern_kroner.fullmatch("420,69 NOK"))
         self.assertTrue(pattern_kroner.fullmatch("420 kr"))
 
     def test_email(self):

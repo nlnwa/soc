@@ -17,8 +17,6 @@ def record_to_webpage(record):
             and record.content_type == 'application/http; msgtype=response' \
             and record.http_headers.get_statuscode() == "200" \
             and re.fullmatch(r"https?:\/\/[\w.]+no(:\d+)?\/?", uri):
-        encoding = []  # re.findall("charset=([^;]+)", record.http_headers.get_header("Content-Type"))
-        encoding.append("utf-8")
         html = str(record.raw_stream.read(), "utf-8", errors="replace")
         ip = record.rec_headers.get_header('WARC-IP-Address')
         content_language = record.http_headers.get_header('Content-Language')
@@ -35,27 +33,38 @@ if __name__ == '__main__':
     responses = []
     path = "/run/media/rolv-arild/Seagate Expansion Drive"
     # path = "res"
+
     all_files = os.listdir(path)
 
     writer = WARCWriter(open("res/webpages.warc.gz", "wb"))  # Keep all relevant records for faster access
+
+    def process(wp):
+        return wp.extra_info
 
     def visit(arg):
         i, file = arg
         if file.startswith("."):
             return
-        c = 0
 
+        c = 0
         with open(f"{path}/{file}", "rb") as stream:
+            queue = []
             for record in WARCIterator(stream):
                 wp = record_to_webpage(record)
                 if wp:
                     writer.write_record(record)
-                    responses.append(wp.extra_info)
+                    # processor.submit(process, wp)
+                    # responses.append(process(wp))
+                    queue.append(wp)
                     c += 1
-        print(f"{i} ({100 * i / len(all_files):.2f}%): {file} ({c} pages added)")
+            for res in processor.map(process, queue):
+                responses.append(res)
+        print(f"{i} ({100 * i / len(all_files):.2f}%): {file} ({c} pages added, {len(responses)} total)")
 
-    with ProcessPoolExecutor() as ex:
-        ex.map(visit, enumerate(all_files))
+
+    with ProcessPoolExecutor() as processor:
+        with ThreadPoolExecutor() as ex:
+            ex.map(visit, enumerate(all_files))
 
     # visit((0, "webpages.warc.gz"))
 

@@ -1,8 +1,11 @@
 import math
+import multiprocessing
 import re
-from collections import Counter
+from collections import Counter, namedtuple
+from concurrent.futures.process import ProcessPoolExecutor
 
 import numpy as np
+from bs4 import BeautifulSoup
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score, mean_squared_error
 
@@ -40,8 +43,22 @@ def jaccard(a, b):
     return abs_i / (abs_a + abs_b - abs_i)
 
 
-def text_to_counter(text, split="\\W+"):
-    return Counter(re.split(split, text.lower()))
+def text_to_counter(text, split="\\W+", multiset=True):
+    init = Counter if multiset else set
+    return init(re.split(split, str(text).lower()))
+
+
+def get_counters(texts, split="\\W+", multi=True, tfidf=False):
+    counters = [text_to_counter(t, split, multi) for t in texts]
+    if tfidf:
+        all_terms = sum(counters, Counter())
+        term_doc_count = Counter({k: sum(k in c for c in counters) for k in all_terms})
+
+        for i, cn in enumerate(counters):
+            counters[i] = Counter({
+                k: (1 + math.log2(c)) * (math.log2(len(counters) / (1 + term_doc_count[k])))
+                for k, c in cn.items()})
+    return counters
 
 
 def all_diffs(it, method, symmetric=False, equality=0):
@@ -65,23 +82,31 @@ def exponential_decay(x, b, c):
 
 
 def inverse_exponential_decay(target, b, c):
-    return math.log((c - target) / (c - 1)) / math.log(b)
+    # Solves exponential_decay(x,b,c) = target for x
+    with np.errstate(all="ignore"):
+        return np.log((c - target) / (c - 1)) / np.log(b)
 
 
-def find_new_delay(delay, similarity, target, multiplier_when_equal=2, c=0):
+def find_new_delay(cur_delay, similarity, target, multiplier_when_equal=2, c=0):
     # Mostly the same as multiplying by the inverse exponential, but with c=0
     # and an additional parameter for the multiplier upon equality (similarity=1)
     # otherwise it would blow up to infinity
-    if similarity <= 0:
-        return 0
-    elif similarity >= 1:
-        return multiplier_when_equal
     adjusted_sim = similarity ** (1 - 1 / multiplier_when_equal)  # So that sim=target gives a multiplier of 1
     ied = inverse_exponential_decay(target, adjusted_sim, c)
-    return delay / (1 / multiplier_when_equal + 1 / ied)
+    return cur_delay / (1 / multiplier_when_equal + 1 / ied)
 
 
-def fit_similarity(timestamps, texts):
+def omega_delay(cur_delay, similarity, target, adj_base=0.25, c=0):
+    adj_fac = 1 - adj_base ** target  # Adj_fac controls how closely it will follow the ied function
+    adjusted_sim = (adj_fac ** similarity - 1) / np.log(adj_fac)  # y'(0)=1,y'(∞)=0
+    adjusted_target = (adj_fac ** target - 1) / np.log(adj_fac)
+
+    # y(0)=0,y(t)=1
+    mult = inverse_exponential_decay(target, adjusted_sim, c) / inverse_exponential_decay(target, adjusted_target, c)
+    return cur_delay * mult
+
+
+def fit_all_texts(timestamps, texts):
     ts_diffs = all_diffs(timestamps, lambda a, b: (b - a) / 3600)
     tx_sims = all_diffs([text_to_counter(t) for t in texts], jaccard, symmetric=True, equality=1)
     x = ts_diffs.flatten()
@@ -89,6 +114,54 @@ def fit_similarity(timestamps, texts):
     params = curve_fit(exponential_decay, x, y,
                        p0=[1, 0], bounds=([0, 0], [1, 1]))[0]
     return params, ts_diffs, tx_sims
+
+
+def fit_similarity(diff_times, similarities):
+    params = curve_fit(exponential_decay, diff_times, similarities,
+                       p0=[1, 0], bounds=([0, 0], [1, 1]))[0]
+    truth, pred = similarities, exponential_decay(diff_times, *params)
+    r2 = r2_score(truth, pred)
+    mse = mean_squared_error(truth, pred)
+    fitness = max(r2 * (1 - 2 * math.sqrt(mse)), 0)
+    return exponential_decay, params, fitness
+
+
+SimResult = namedtuple("SimResult", ["word", "tag", "link", "img"])
+
+
+def html_to_counters(html):
+    soup = BeautifulSoup(html, "html.parser")
+    [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
+    [s.extract() for s in soup.find_all(attrs={"style": re.compile("display: ?none|visibility: ?hidden")})]
+
+    res = SimResult(Counter(), Counter(), Counter(), Counter())
+
+    for tag in soup.stripped_strings:
+        res.tag[tag] += 1
+        for word in re.split("\\W+", tag):
+            res.word[word] += 1
+
+    for a in soup.find_all("a", attrs={"href": True}):
+        href = a.get("href")
+        res.link[href] += 1
+
+    for img in soup.find_all("img", attrs={"src": True}):
+        src = img.get("src")
+        res.img[src] += 1
+
+    return res
+
+
+def html_sim(html1, html2):
+    res1 = html_to_counters(html1)
+    res2 = html_to_counters(html2)
+
+    return SimResult(
+        word=jaccard(res1.word, res2.word),
+        tag=jaccard(res1.tag, res2.tag),
+        link=jaccard(res1.link, res2.link),
+        img=jaccard(res1.img, res2.img),
+    )
 
 
 if __name__ == '__main__':
@@ -99,7 +172,7 @@ if __name__ == '__main__':
     df = df[df.text.notna()].sort_values("timestamp").groupby("original_url")
     url = "http://www.vg.no/"
     df = df.get_group(url)
-    par, ts, tx = fit_similarity(df["timestamp"], df["text"])
+    par, ts, tx = fit_all_texts(df["timestamp"], df["text"])
     # assert abs(exponential_decay(inverse_exponential_decay(0.5, *par), *par) - 0.5) < 1e-10
     y_true = tx.flatten()
     y_pred = exponential_decay(ts.flatten(), *par)

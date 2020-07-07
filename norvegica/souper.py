@@ -5,7 +5,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import pycld2
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Tag, Comment
 from geoip2.database import Reader
 
 from patterns import *
@@ -23,7 +23,6 @@ SCHEMES = ALREADY_NO, HREF_HREFLANG_REL, HREF_NORWAY_FULL, HREF_HREFLANG, HREF_L
           REPLACE, HREF_NORWAY_PARTIAL, HREF_NORWAY_LINK, NO_MATCH  # Ordered from best to worst
 
 reader = Reader('res/GeoIP2-Country.mmdb')
-
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -71,16 +70,27 @@ def get_text(connection_or_html) -> str:
     Uses BeautifulSoup to get text from HTML
     """
     # https://stackoverflow.com/questions/1936466/beautifulsoup-grab-visible-webpage-text/1983219#1983219
-    soup = BeautifulSoup(connection_or_html, "html.parser")
+    if isinstance(connection_or_html, BeautifulSoup):
+        soup = connection_or_html
+    else:
+        soup = BeautifulSoup(connection_or_html, "html.parser")
 
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
+    [s.extract() for s in soup.find_all(attrs={"style": re.compile("display: ?none|visibility: ?hidden")})]
 
-    txt = soup.get_text(separator="\t\t")
-    split = txt.split("\t\t")
-    split = [re.sub(r"\s+", " ", s.strip()) for s in split]
+    # txt = soup.get_text(separator="\t\t")
+    # split = txt.split("\t\t")
+    split = [re.sub(r"\s+", " ", s) for s in soup.stripped_strings]
     split = [s for s in split if s]
 
     return "\t".join(split)
+
+
+def get_text_and_links(connection_or_html):
+    soup = BeautifulSoup(connection_or_html, "html.parser")
+    txt = get_text(soup)
+    links = [link.get("href") for link in soup.find_all("a", attrs={"href": True})]
+    return txt, links
 
 
 def geo(ip: str) -> str:
@@ -249,5 +259,3 @@ def place_tag(t: Tag) -> str:
         return HREF_NORWAY_LINK
 
     return NO_MATCH
-
-

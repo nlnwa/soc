@@ -46,7 +46,7 @@ class WebPage:
         self.no_version = no_version
         self.ip = ip
         self.timestamp = timestamp
-        self.geo_loc = geo_loc or souper.geo(ip) or ""
+        self.geo_loc = geo_loc or (souper.geo(ip) if ip else "")
         self.content_language = content_language
         self.last_modified = last_modified
         self.etag = etag

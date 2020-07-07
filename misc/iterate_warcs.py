@@ -8,6 +8,7 @@ import pandas as pd
 from warcio.archiveiterator import WARCIterator
 from warcio.warcwriter import WARCWriter
 
+import souper
 from WebPage import WebPage
 
 
@@ -29,17 +30,37 @@ def record_to_webpage(record):
     return None
 
 
+def get_info(record):
+    uri = record.rec_headers.get_header('WARC-Target-URI')
+    html = str(record.raw_stream.read(), "utf-8", errors="replace")
+    content_language = record.http_headers.get_header('Content-Language')
+    last_modified = record.http_headers.get_header("Last-Modified")
+    etag = record.http_headers.get_header("ETag")
+    timestamp = parser.parse(record.rec_headers.get_header("WARC-Date")).timestamp()
+    return [uri, timestamp, content_language, last_modified, etag, html]
+
+
 if __name__ == '__main__':
     responses = []
-    path = "/run/media/rolv-arild/Seagate Expansion Drive"
-    # path = "res"
+    # path = "/run/media/rolv-arild/Seagate Expansion Drive"
+    path = ""
 
-    all_files = os.listdir(path)
+    # all_files = os.listdir(path)
 
-    writer = WARCWriter(open("res/webpages.warc.gz", "wb"))  # Keep all relevant records for faster access
+    cols = ["uri", "timestamp", "content_language", "last_modified", "etag", "text", "links"]
+    data = {c: [] for c in cols}
+
+    # writer = WARCWriter(open("res/webpages.warc.gz", "wb"))  # Keep all relevant records for faster access
+
 
     def process(wp):
-        return wp.extra_info
+        html = wp[-1]
+        txt, links = souper.get_text_and_links(html)
+        wp[-1] = txt
+        wp.append("\t".join(links))
+        return wp
+        # return wp.extra_info
+
 
     def visit(arg):
         i, file = arg
@@ -47,26 +68,32 @@ if __name__ == '__main__':
             return
 
         c = 0
-        with open(f"{path}/{file}", "rb") as stream:
+        with open(f"{path}{file}", "rb") as stream:
             queue = []
             for record in WARCIterator(stream):
-                wp = record_to_webpage(record)
-                if wp:
-                    writer.write_record(record)
-                    # processor.submit(process, wp)
-                    # responses.append(process(wp))
-                    queue.append(wp)
-                    c += 1
-            for res in processor.map(process, queue):
-                responses.append(res)
-        print(f"{i} ({100 * i / len(all_files):.2f}%): {file} ({c} pages added, {len(responses)} total)")
+                row = get_info(record)
+                queue.append(row)
+
+                # wp = record_to_webpage(record)
+                # if wp:
+                #     # writer.write_record(record)
+                #     # processor.submit(process, wp)
+                #     # responses.append(process(wp))
+                #     queue.append(wp)
+                #     c += 1
+            for row in processor.map(process, queue):
+                for col, r in zip(cols, row):
+                    data[col].append(r)
+        # print(f"{i} ({100 * i / len(all_files):.2f}%): {file} ({c} pages added, {len(responses)} total)")
 
 
     with ProcessPoolExecutor() as processor:
-        with ThreadPoolExecutor() as ex:
-            ex.map(visit, enumerate(all_files))
+        # with ThreadPoolExecutor() as ex:
+        #     ex.map(visit, enumerate(all_files))
 
-    # visit((0, "webpages.warc.gz"))
+        visit((0, "tracked.warc.gz"))
 
-    df = pd.json_normalize(responses)
-    df.to_csv("warc_pages.csv")
+    df = pd.DataFrame(data, columns=cols)
+
+    # df = pd.json_normalize(responses)
+    df.to_csv("tracked2.csv")

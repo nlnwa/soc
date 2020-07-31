@@ -91,9 +91,9 @@ if __name__ == '__main__':
         # with ThreadPoolExecutor() as ex:
         #     ex.map(visit, enumerate(all_files))
 
-        visit((0, "tracked.warc.gz"))
+        visit((0, "adaptive4.warc.gz"))
 
     df = pd.DataFrame(data, columns=cols)
 
     # df = pd.json_normalize(responses)
-    df.to_csv("tracked2.csv")
+    df.to_csv("adaptive4.csv")

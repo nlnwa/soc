@@ -6,7 +6,7 @@ from concurrent.futures.process import ProcessPoolExecutor
 
 import numpy as np
 from bs4 import BeautifulSoup
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, newton
 from sklearn.metrics import r2_score, mean_squared_error
 
 
@@ -30,16 +30,22 @@ def similarity_coeffs(a, b):
 
 def dice(a, b):
     abs_a, abs_b, abs_i = _find_abs(a, b)
+    if 0 == abs_a == abs_b:
+        return 1.
     return 2 * abs_i / (abs_a + abs_b)
 
 
 def cosine(a, b):
     abs_a, abs_b, abs_i = _find_abs(a, b)
+    if 0 == abs_a == abs_b:
+        return 1.
     return abs_i / (math.sqrt(abs_a * abs_b))
 
 
 def jaccard(a, b):
     abs_a, abs_b, abs_i = _find_abs(a, b)
+    if 0 == abs_a == abs_b:
+        return 1.
     return abs_i / (abs_a + abs_b - abs_i)
 
 
@@ -77,56 +83,148 @@ def all_diffs(it, method, symmetric=False, equality=0):
     return diffs
 
 
-def exponential_decay(x, b, c):
-    return (1 - c) * b ** (np.abs(x)) + c
+class SimilarityModel:
+    def __init__(self, invertible, **cf_args):
+        self.invertible = invertible
+        self.cf_args = cf_args
+
+    def func(self, x, *params):
+        raise NotImplementedError
+
+    def inv_func(self, t, *params):
+        if self.invertible:
+            raise NotImplementedError
+
+    def der_func(self, x, *params):
+        if not self.invertible:
+            raise NotImplementedError
+
+    def eval(self, x, *params):
+        return self.func(x, *params)
+
+    def inv_eval(self, t, *params):
+        if not (0 < t < 1):
+            raise ValueError("Invalid target")
+
+        if self.invertible:
+            return self.inv_func(t, *params)
+        else:
+            return newton(lambda x: self.func(x, *params) - t, 0.0001, lambda x: self.der_func(x, *params))
+
+    def fit(self, diff_times, similarities, scores=True):
+        params = curve_fit(self.func, diff_times, similarities, **self.cf_args)[0]
+        truth, pred = similarities, self.func(diff_times, *params)
+        if scores:
+            r2 = r2_score(truth, pred)
+            mse = mean_squared_error(truth, pred)
+            fitness = max(r2 * (1 - 2 * math.sqrt(mse)), 0)
+            return self.func, params, fitness
+        return self.func, params
 
 
-def inverse_exponential_decay(target, b, c):
-    # Solves exponential_decay(x,b,c) = target for x
-    with np.errstate(all="ignore"):
-        return np.log((c - target) / (c - 1)) / np.log(b)
+class ExpDecayModel(SimilarityModel):
+    def __init__(self, **cf_args):
+        default = dict(p0=[1, 0], bounds=(0, 1))
+        default.update(**cf_args)
+        super().__init__(True, **default)
+
+    def func(self, x, *params):
+        b, c = params
+        return (1 - c) * b ** (np.abs(x)) + c
+
+    def inv_func(self, t, *params):
+        b, c = params
+        with np.errstate(all="ignore"):
+            return np.log((c - t) / (c - 1)) / np.log(b)
 
 
-def find_new_delay(cur_delay, similarity, target, multiplier_when_equal=2, c=0):
-    # Mostly the same as multiplying by the inverse exponential, but with c=0
-    # and an additional parameter for the multiplier upon equality (similarity=1)
-    # otherwise it would blow up to infinity
-    adjusted_sim = similarity ** (1 - 1 / multiplier_when_equal)  # So that sim=target gives a multiplier of 1
-    ied = inverse_exponential_decay(target, adjusted_sim, c)
-    return cur_delay / (1 / multiplier_when_equal + 1 / ied)
+class ExpDecayPlusModel(SimilarityModel):
+    def __init__(self, n_params=2, **cf_args):
+        self.n_params = n_params
+        default = dict(p0=[0] * n_params + [1] * n_params, bounds=(0, 1))
+        default.update(cf_args)
+        super().__init__(False, **default)
+
+    def func(self, x, *params):
+        n = self.n_params
+        c0 = params[0]
+        b0 = params[n]
+        tot = b0 ** x
+        for i in range(1, n):
+            cn, bn = params[n - i], params[n + i]
+            tot = (1 - cn) * tot + cn * bn ** x
+        return (1 - c0) * tot + c0
+
+    def der_func(self, x, *params):
+        n = self.n_params
+        c0 = params[0]
+        b0 = params[n]
+        tot = b0 ** x * np.log(b0)
+        for i in range(1, n):
+            cn, bn = params[n - i], params[n + i]
+            tot = (1 - cn) * tot + cn * bn ** x * np.log(bn)
+        return (1 - c0) * tot
 
 
-def omega_delay(cur_delay, similarity, target, adj_base=0.25, c=0):
-    adj_fac = 1 - adj_base ** target  # Adj_fac controls how closely it will follow the ied function
-    adjusted_sim = (adj_fac ** similarity - 1) / np.log(adj_fac)  # y'(0)=1,y'(∞)=0
-    adjusted_target = (adj_fac ** target - 1) / np.log(adj_fac)
+class ConstantEqualExpDecayModel(ExpDecayModel):
+    def __init__(self, multiplier_when_equal=2):
+        self.multiplier_when_equal = multiplier_when_equal
+        super().__init__()
 
-    # y(0)=0,y(t)=1
-    mult = inverse_exponential_decay(target, adjusted_sim, c) / inverse_exponential_decay(target, adjusted_target, c)
-    return cur_delay * mult
+    def func(self, x, *params):
+        b, c = params
+        m = self.multiplier_when_equal
+        return -c * (b ** ((m - 1) / m)) ** ((m * x) / (m - x)) + (b ** ((m - 1) / m)) ** ((m * x) / (m - x)) + c
+        # raise NotImplementedError
+        # Potentially
+        # t = -c (b^((m - 1)/m))^((m x)/(m - x)) + (b^((m - 1)/m))^((m x)/(m - x)) + c
 
-
-def fit_all_texts(timestamps, texts):
-    ts_diffs = all_diffs(timestamps, lambda a, b: (b - a) / 3600)
-    tx_sims = all_diffs([text_to_counter(t) for t in texts], jaccard, symmetric=True, equality=1)
-    x = ts_diffs.flatten()
-    y = tx_sims.flatten()
-    params = curve_fit(exponential_decay, x, y,
-                       p0=[1, 0], bounds=([0, 0], [1, 1]))[0]
-    return params, ts_diffs, tx_sims
-
-
-def fit_similarity(diff_times, similarities):
-    params = curve_fit(exponential_decay, diff_times, similarities,
-                       p0=[1, 0], bounds=([0, 0], [1, 1]))[0]
-    truth, pred = similarities, exponential_decay(diff_times, *params)
-    r2 = r2_score(truth, pred)
-    mse = mean_squared_error(truth, pred)
-    fitness = max(r2 * (1 - 2 * math.sqrt(mse)), 0)
-    return exponential_decay, params, fitness
+    def inv_func(self, t, *params):
+        # Mostly the same as multiplying by the inverse exponential, but with
+        # an additional parameter for the multiplier upon equality (similarity=1)
+        # otherwise it would blow up to infinity
+        b, c = params
+        m = self.multiplier_when_equal
+        adjusted_b = b ** (1 - 1 / m)  # So that sim=target gives a multiplier of 1
+        ied = super(ConstantEqualExpDecayModel, self).inv_func(t, adjusted_b, c)
+        return 1 / (1 / m + 1 / ied)
 
 
-SimResult = namedtuple("SimResult", ["word", "tag", "link", "img"])
+class AdjustedExpDecayModel(ExpDecayModel):
+    def __init__(self, adj_base=0.25):
+        self.adj_base = adj_base
+        super().__init__()
+
+    def func(self, x, *params):
+        raise NotImplementedError
+
+    def inv_func(self, t, *params):
+        b, c = params
+        adj_fac = 1 - self.adj_base ** t  # Adj_fac controls how closely it will follow the ied function
+        adjusted_b = (adj_fac ** b - 1) / np.log(adj_fac)  # y'(0)=1,y'(∞)=0
+        adjusted_t = (adj_fac ** t - 1) / np.log(adj_fac)
+
+        ied = super(AdjustedExpDecayModel, self).inv_func
+        return ied(t, adjusted_b, c) / ied(t, adjusted_t, c)
+
+
+class HtmlResult(namedtuple("HtmlResult", ["word", "tag", "link", "img"])):
+    __slots__ = ()
+
+    def similarities(self, r2, method=jaccard):
+        return HtmlResult(
+            word=method(self.word, r2.word),
+            tag=method(self.tag, r2.tag),
+            link=method(self.link, r2.link),
+            img=method(self.img, r2.img),
+        )
+
+    def similarity(self, r2, method=jaccard):
+        comb = self.similarities(r2, method)
+        return sum(comb) / len(comb)
+
+    def total(self):
+        return sum(self, Counter())
 
 
 def html_to_counters(html):
@@ -134,12 +232,14 @@ def html_to_counters(html):
     [s.extract() for s in soup(['style', 'script', '[document]', 'head', 'title'])]
     [s.extract() for s in soup.find_all(attrs={"style": re.compile("display: ?none|visibility: ?hidden")})]
 
-    res = SimResult(Counter(), Counter(), Counter(), Counter())
+    res = HtmlResult(Counter(), Counter(), Counter(), Counter())
 
     for tag in soup.stripped_strings:
+        tag = re.sub("\\s+", " ", tag)
         res.tag[tag] += 1
         for word in re.split("\\W+", tag):
-            res.word[word] += 1
+            if word:
+                res.word[word] += 1
 
     for a in soup.find_all("a", attrs={"href": True}):
         href = a.get("href")
@@ -150,40 +250,3 @@ def html_to_counters(html):
         res.img[src] += 1
 
     return res
-
-
-def html_sim(html1, html2):
-    res1 = html_to_counters(html1)
-    res2 = html_to_counters(html2)
-
-    return SimResult(
-        word=jaccard(res1.word, res2.word),
-        tag=jaccard(res1.tag, res2.tag),
-        link=jaccard(res1.link, res2.link),
-        img=jaccard(res1.img, res2.img),
-    )
-
-
-if __name__ == '__main__':
-    import pandas as pd
-
-    df = pd.read_csv("news2_temp.csv")
-    news = df[~df["original_url"].isin({"https://sero.gcloud.api.no:443/", "http://sero.gcloud.api.no/"})]
-    df = df[df.text.notna()].sort_values("timestamp").groupby("original_url")
-    url = "http://www.vg.no/"
-    df = df.get_group(url)
-    par, ts, tx = fit_all_texts(df["timestamp"], df["text"])
-    # assert abs(exponential_decay(inverse_exponential_decay(0.5, *par), *par) - 0.5) < 1e-10
-    y_true = tx.flatten()
-    y_pred = exponential_decay(ts.flatten(), *par)
-    print(par, r2_score(y_true, y_pred), mean_squared_error(y_true, y_pred))
-    import matplotlib.pyplot as plt
-
-    for n in range(0, len(ts), 1):
-        plt.plot(ts[n], tx[n], color="g")
-    xs = np.arange(ts.min(), ts.max(), 0.01)
-    plt.plot(xs, exponential_decay(xs, *par), color="b")
-    plt.title(url)
-    plt.xlabel("Hours")
-    plt.ylabel("Similarity")
-    plt.show()

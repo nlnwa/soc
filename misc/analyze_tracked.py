@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from misc.util import jaccard, text_to_counter
+from misc.util import jaccard, text_to_counter, html_to_counters
 
 
 def add_columns(df, compare_with_start=False, master=None):
@@ -83,7 +83,7 @@ def plot_similarities(url, df):
 
 
 def main():
-    df = pd.read_csv("tracked2.csv")
+    df = pd.read_csv("adaptive4.csv")
     df = df[df.uri != "https://www.dagbladet.no/"]
     df = df.sort_values("timestamp")
     # g = df.groupby('uri')
@@ -94,7 +94,7 @@ def main():
     for url in ["https://www.vg.no/", "https://www.nrk.no/nyheter/", "https://www.ranablad.no/"]:
         plot_sim(url, df).show()
         plot_ts_diff(url, df).show()
-    plot_similarities("https://www.vg.no/", add_columns(df, False)).show()
+    plot_similarities("https://www.vg.no/", add_columns(df, True)).show()
     print(df.corr().iloc[-3::, -3::])
 
 

@@ -6,10 +6,11 @@ from sched import scheduler
 from threading import RLock, Thread
 
 import requests
+from scipy.optimize import curve_fit
 from warcio import WARCWriter, StatusAndHeaders
 import numpy as np
 
-from misc.util import html_to_counters, HtmlResult, ExpDecayModel
+from similarity.util import html_to_counters, HtmlResult
 from souper import HEADERS
 
 daf_args = ["default_delay", "target", "history"]
@@ -22,7 +23,7 @@ class DelayAdjuster:
         if 0 < target < 1:
             self.target = target
         else:
-            raise ValueError
+            raise ValueError(f"Target must be between 0 and 1, got {target}")
 
     def add_case(self, timestamp: float, result: HtmlResult):
         raise NotImplementedError
@@ -56,13 +57,12 @@ class SimpleDelayAdjuster(DelayAdjuster):
         self.current = (timestamp, result)
 
     def get_delay(self):
-        if self.last is not None:
+        if self.last is None:
             return self.default_delay
         (ts0, res0), (ts1, res1) = self.last, self.current
         cur_delay = ts1 - ts0
         sim = res0.similarity(res1)
         return cur_delay * (1 + 1 / (1 - self.target)) ** (sim - self.target)
-        # return cur_delay * sim / self.target
 
 
 class BisectionDelayAdjuster(DelayAdjuster):
@@ -83,12 +83,17 @@ class BisectionDelayAdjuster(DelayAdjuster):
         if len(self.hist) < 2:
             return self.default_delay
         xs, ys = zip(*self.hist)
-        params = np.polyfit(xs, ys, 1, w=np.arange(1, len(self.hist) + 1, 1))
+        xs = np.array(xs)
+        ys = np.array(ys)
+        weights = np.arange(1, len(self.hist) + 1, 1) * (1 - np.abs(ys)) ** 2
+        params = np.polyfit(xs, ys, 1, w=weights)
         a, b = params[0], params[1]
-        sol = (self.target - b) / a  # Solution to ax+b=t
-        if sol <= 0:
+        if b < self.target or a >= 0:
             x, y = self.hist[-1]
+            logging.debug(f"Invalid a or b, a={a}, b={b}, x={x}, y={y}")
             return x * (1 + 1 / (1 - self.target)) ** y
+        logging.debug(f"Valid a and b, a={a}, b={b}, weight_sample={weights[:5]}...{weights[-5:]}")
+        sol = (self.target - b) / a  # Solution to ax+b=t
         return sol
 
 
@@ -104,41 +109,71 @@ class ReciprocalDelayAdjuster(DelayAdjuster):
 
     def __init__(self, default_delay: int, target: float):
         super().__init__(default_delay, target)
-        self.last_xy = None
-        self.current_xy = None
+        self.hist = []
         self.last = None
 
     def add_case(self, timestamp: float, result: HtmlResult):
         if self.last is not None:
             ts0, res0 = self.last
-            self.last_xy = self.current_xy
-            self.current_xy = (timestamp - ts0, result.similarity(res0))
+            self.hist.append((timestamp - ts0, result.similarity(res0)))
         self.last = timestamp, result
 
-    def get_delay(self):
-        if self.current_xy is None:
-            return self.default_delay
-        elif self.last_xy is None:
-            x, y = self.current_xy
-            a = 0  # Assumed to make it solvable
-            b = x * y / (1 - y) if y < 1 else 0
-            if b <= 0:
-                return x * (1 + 1 / (1 - self.target)) ** (y - self.target)
-        else:
-            x0, y0 = self.last_xy
-            x1, y1 = self.current_xy
-            if y0 == y1 == 1:  # Both a and b would give division by zero
-                return x1 * (1 + 1 / (1 - self.target)) ** (1 - self.target)
-            a = (x0 * y0 * (y1 - 1) - x1 * y1 * (y0 - 1)) / (x0 * (y1 - 1) - x1 * (y0 - 1))
-            b = (x0 * x1 * (y0 - y1)) / (x0 * (y1 - 1) - x1 * (y0 - 1))
-            if b <= 0 or not 0 <= a < self.target:
-                if x0 < x1 and y0 > y1 or x1 < x0 and y1 > y0:
-                    my0 = y0 - self.target
-                    my1 = y1 - self.target
-                    return (x0 * my1 - x1 * my0) / (my1 - my0)  # Fallback on regula falsi
-                return x1 * (1 + 1 / (1 - self.target)) ** (y1 - self.target)
+    @staticmethod
+    def reciprocal_func(x, a, b):
+        return (1 - a) * b / (x + b) + a
 
-        return b * (1 - self.target) / (self.target - a)
+    @staticmethod
+    def solve_exact(x0, y0, x1, y1):
+        denominator = (x0 * (y1 - 1) - x1 * (y0 - 1))
+        if denominator == 0:  # Both a and b would give division by zero
+            logging.debug(f"Zero denominator: last={(x0, y0)}, current={(x1, y1)}")
+            a = float("nan")
+            b = float("nan")
+        else:
+            a = (x0 * y0 * (y1 - 1) - x1 * y1 * (y0 - 1)) / denominator
+            b = (x0 * x1 * (y0 - y1)) / denominator
+        # a and b are solutions to the system of equations:
+        # (1 - a) * b / (x0 + b) + a = y0
+        # (1 - a) * b / (x1 + b) + a = y1
+        return a, b
+
+    def solve_fit(self, points):
+        x, y = zip(*points)
+        tot = sum(y)
+        if tot == 0 or tot == len(y):
+            return float("nan"), float("nan")
+        sigma = np.sqrt(np.arange(len(points), 0, -1))
+        a_bound = self.target * len(points) / (len(points) + 1)  # Ensure a isn't set too close to target without data
+        a, b = curve_fit(ReciprocalDelayAdjuster.reciprocal_func, x, y,
+                         p0=[0, 1], bounds=(0, (a_bound, np.inf)), sigma=sigma)[0]
+        return a, b
+
+    def get_delay(self):
+        if len(self.hist) <= 0:
+            return self.default_delay
+        elif len(self.hist) == 1:
+            x, y = self.hist[0]
+            a = 0  # Since we only have one point we need one less free variable
+            b = x * y / (1 - y) if y < 1 else 0
+        else:
+            if len(self.hist) == 2:
+                (x0, y0), (x1, y1) = self.hist
+                a, b = self.solve_exact(x0, y0, x1, y1)
+            else:
+                a = self.target
+                b = - 1
+
+            if b <= 0 or not 0 <= a < self.target:
+                a, b = self.solve_fit(self.hist)
+
+            logging.debug(f"Reciprocal: a={a}, b={b}, last={self.hist[-2]}, current={self.hist[-1]}")
+
+        if b <= 0 or not 0 <= a < self.target:
+            x, y = self.hist[-1]
+            logging.debug(f"Invalid b: a={a}, b={b}, current={(x, y)}")
+            return x * (1 + 1 / (1 - self.target)) ** (y - self.target)
+
+        return b * (1 - self.target) / (self.target - a)  # Solution to (1 - a) * b / (x + b) + a = t
 
 
 class AverageDelayAdjuster(DelayAdjuster):
@@ -164,7 +199,7 @@ class AverageDelayAdjuster(DelayAdjuster):
             tot += w * sim ** (1 / diff)
             n += w
         est = tot / n
-        return ExpDecayModel().inv_eval(self.target, est, 0) * self.default_delay
+        return self.default_delay * np.log(self.target) / np.log(est)
 
 
 class Harvester:
@@ -242,7 +277,7 @@ class Harvester:
 
 
 def create_and_harvest(name, urls, da, targ, dd=3600):
-    logging.basicConfig(filename=f"{name}.log", level=logging.INFO)
+    logging.basicConfig(filename=f"{name}.log", level=logging.DEBUG)
     harvester = Harvester(name, default_delay=dd)
     t = Thread(target=harvester.harvest, args=(urls, targ, da))
     t.start()

@@ -1,11 +1,10 @@
-import re
 from collections import Counter
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from misc.util import jaccard, text_to_counter, html_to_counters
+from similarity.util import jaccard, text_to_counter
 
 
 def add_columns(df, compare_with_start=False, master=None):

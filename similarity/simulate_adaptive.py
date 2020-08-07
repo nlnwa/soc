@@ -1,13 +1,10 @@
-import math
-import time
-
 import scipy.stats as stts
 
-from misc.harvest_adjust import average_adjust_func
+from similarity.harvest_adjust import *
 
 
 def simulate(similarities, adj_func, default_delay=3600, target=0.9):
-    hist = []
+    adjuster = adj_func(default_delay, target)
 
     class Sim:  # Just a basic class that emulates HtmlResult's similarity method
         def __init__(self, t, b):
@@ -23,8 +20,8 @@ def simulate(similarities, adj_func, default_delay=3600, target=0.9):
     t = time.time()
     delay = default_delay
     for s in similarities:
-        hist.append((t, Sim(t, s)))
-        delay = adj_func(default_delay, target, hist)
+        adjuster.add_case(t, Sim(t, s))
+        delay = adjuster.get_delay()
         # print(delay)
         t += delay
     return delay / default_delay, (t - time.time()) / default_delay
@@ -32,7 +29,7 @@ def simulate(similarities, adj_func, default_delay=3600, target=0.9):
 
 if __name__ == '__main__':
     n = 32
-    adj_f = average_adjust_func
+    adj_f = ReciprocalDelayAdjuster
     print("All 1s:", simulate([1] * n, adj_f))
     print("All 0s:", simulate([0] * n, adj_f))
     print("All 1s, 0 at end:", simulate([1 - (i + 1) // n for i in range(n)], adj_f))
